@@ -1,0 +1,23 @@
+scene: Warehouse_001
+data_root: ./data
+weights_root: ./weights
+outputs_root: ./outputs
+external_root: ./external
+clip:
+  start_sec: 0
+  duration_sec: 30
+detect:
+  conf_thresh: 0.5
+  nms_iou: 0.5
+reid:
+  similarity_thresh: 0.7
+pose:
+  keypoint_conf: 0.3
+sct:
+  track_buffer: 30
+  match_thresh: 0.8
+mct:
+  cluster_thresh: 0.6
+  min_track_len: 10
+vram_min_free_gb: 4.0
+fps: 30
