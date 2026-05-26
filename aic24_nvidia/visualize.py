@@ -24,6 +24,38 @@ def _frame_paths(frame_dir: Path) -> list[Path]:
     return sorted(frame_dir.glob("*.jpg"))
 
 
+def _reencode_h264(path: Path) -> None:
+    """Re-encode an existing mp4 (written by cv2 mp4v) to H.264 in place so
+    browsers can play it in <video> tags. No-op if ffmpeg is missing or the
+    file is already H.264."""
+    import shutil, subprocess
+    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+        return
+    path = Path(path)
+    if not path.exists():
+        return
+    try:
+        codec = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=codec_name",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+    except subprocess.CalledProcessError:
+        return
+    if codec in ("h264", "avc1"):
+        return
+    tmp = path.with_suffix(".h264.mp4")
+    proc = subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(path),
+         "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+         "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+         "-an", str(tmp)],
+    )
+    if proc.returncode == 0 and tmp.exists():
+        tmp.replace(path)
+
+
 def viz_detect_from_txt(frame_dir: Path, det_txt: Path, out_mp4: Path, fps: int) -> None:
     """Upstream detect emits MOT-like rows: camera_name,frame_id,class,x1,y1,x2,y2,score"""
     dets_by_frame: dict[int, list] = {}
@@ -50,6 +82,13 @@ def viz_detect_from_txt(frame_dir: Path, det_txt: Path, out_mp4: Path, fps: int)
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         writer.write(img)
     writer.release()
+    _reencode_h264(out_mp4)
+
+
+def _coord_to_xyxy_local(coord):
+    if isinstance(coord, dict):
+        return float(coord["x1"]), float(coord["y1"]), float(coord["x2"]), float(coord["y2"])
+    return float(coord[0]), float(coord[1]), float(coord[2]), float(coord[3])
 
 
 def viz_tracks_from_yachiyo_sct(frame_dir: Path, sct_json: Path, out_mp4: Path, fps: int,
@@ -61,7 +100,9 @@ def viz_tracks_from_yachiyo_sct(frame_dir: Path, sct_json: Path, out_mp4: Path, 
         if not isinstance(e, dict):
             continue
         fid = int(e["Frame"]); tid = int(e["OfflineID"])
-        x1, y1, x2, y2 = e["Coordinate"]
+        if tid < 0:
+            continue
+        x1, y1, x2, y2 = _coord_to_xyxy_local(e["Coordinate"])
         tracks_by_frame.setdefault(fid, []).append((tid, x1, y1, x2, y2))
 
     frames = _frame_paths(frame_dir)
@@ -79,6 +120,7 @@ def viz_tracks_from_yachiyo_sct(frame_dir: Path, sct_json: Path, out_mp4: Path, 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
         writer.write(img)
     writer.release()
+    _reencode_h264(out_mp4)
 
 
 def viz_mct_grid_from_yachiyo_mct(cam_frame_dirs: dict[str, Path], mct_json: Path,
@@ -93,8 +135,14 @@ def viz_mct_grid_from_yachiyo_mct(cam_frame_dirs: dict[str, Path], mct_json: Pat
         for _serial, e in (entries.items() if isinstance(entries, dict) else []):
             if not isinstance(e, dict):
                 continue
-            fid = int(e["Frame"]); gid = int(e["GlobalOfflineID"])
-            x1, y1, x2, y2 = e["Coordinate"]
+            gid_raw = e.get("GlobalOfflineID")
+            if gid_raw is None:
+                continue
+            gid = int(gid_raw)
+            if gid < 0:
+                continue
+            fid = int(e["Frame"])
+            x1, y1, x2, y2 = _coord_to_xyxy_local(e["Coordinate"])
             d.setdefault(fid, []).append((gid, x1, y1, x2, y2))
         tracks_by_cam_frame[cam_name] = d
 
@@ -129,3 +177,4 @@ def viz_mct_grid_from_yachiyo_mct(cam_frame_dirs: dict[str, Path], mct_json: Pat
         grid_rows = [np.hstack(tiles[r * cols:(r + 1) * cols]) for r in range(rows)]
         writer.write(np.vstack(grid_rows))
     writer.release()
+    _reencode_h264(out_mp4)

@@ -54,6 +54,7 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
             ("Tracking", ctx.work_dir),
             ("EmbedFeature", stage_dir(run_dir, "reid")),
             ("Detection", stage_dir(run_dir, "detect")),
+            ("Pose", stage_dir(run_dir, "pose")),
         ):
             link = yachiyo / name
             ensure_dir_clean(link)
@@ -68,13 +69,24 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         if proc.returncode != 0:
             raise StageError("mct", proc.returncode, str(log_path))
 
-        whole = ctx.work_dir / SCENE / "fixed_whole_tracking_results.json"
-        if not whole.exists():
-            # fall back to non-fixed
-            whole = ctx.work_dir / SCENE / "whole_tracking_results.json"
-        if not whole.exists():
-            raise ValidationError(f"MCT output missing in {ctx.work_dir / SCENE}")
-        if not _spans_multiple_cameras(whole):
+        # Prefer fixed_whole_tracking_results.json (final, corrected); fall back
+        # to the raw whole_tracking_results.json if the correction step was
+        # skipped or produced empty global IDs.
+        fixed_whole = ctx.work_dir / SCENE / "fixed_whole_tracking_results.json"
+        raw_whole = ctx.work_dir / SCENE / "whole_tracking_results.json"
+        candidates = []
+        if fixed_whole.exists():
+            candidates.append(fixed_whole)
+        if raw_whole.exists():
+            candidates.append(raw_whole)
+        whole = None
+        for c in candidates:
+            if _spans_multiple_cameras(c):
+                whole = c
+                break
+        if whole is None:
+            if not candidates:
+                raise ValidationError(f"MCT output missing in {ctx.work_dir / SCENE}")
             raise ValidationError("MCT produced no global IDs spanning >=2 cameras")
 
         ctx.set_inputs({"sct_manifest": str(sct_manifest)})

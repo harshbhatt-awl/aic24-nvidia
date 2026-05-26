@@ -12,17 +12,50 @@ log = logging.getLogger(__name__)
 
 
 def discover_cameras(scene_dir: Path) -> list[str]:
-    videos = sorted((scene_dir / "videos").glob("Camera_*.mp4"))
+    """Discover camera files in the videos directory.
+
+    Real NVIDIA Warehouse scenes (as pre-processed by the AIC23 sibling project)
+    name videos `camera_NNNN.mp4` (lowercase). Camera IDs are NOT necessarily
+    sequential (e.g., Warehouse_001 has cameras 0390..0396).
+    """
+    videos = sorted((scene_dir / "videos").glob("camera_*.mp4"))
     return [v.stem for v in videos]
 
 
-def identity_project(world_xyz: tuple, cam_name: str) -> tuple[float, float]:
-    """Fallback projector: x,y world -> x,y pixel (treats world as image-aligned).
+def _projector_from_calibration(calib_body: dict):
+    """Build a project_fn(world_xy_or_xyz, cam_name) -> (u, v) from real
+    NVIDIA-format calibration data: {"cameras": {cam_name: {K, R, t}, ...}}.
 
-    Used only when the per-camera calibration isn't loadable. The reprojection
-    check with this fallback isn't meaningful; we still run it to log the gap.
+    Applies the pinhole model: x_img = K [R | t] X_world (X_world in homog).
+    Real GT carries 2D world_xy (z=0 floor plane) — we pad z=0 if needed.
     """
-    return (float(world_xyz[0]), float(world_xyz[1]))
+    import numpy as np
+    cams = calib_body["cameras"]
+
+    def project(world_xy_or_xyz, cam_name: str) -> tuple[float, float]:
+        cam = cams[cam_name]
+        K = np.array(cam["K"], dtype=float)
+        R = np.array(cam["R"], dtype=float)
+        t = np.array(cam["t"], dtype=float)
+        w = list(world_xy_or_xyz)
+        if len(w) == 2:
+            w.append(0.0)
+        X = np.array(w, dtype=float)
+        cam_coords = R @ X + t
+        if cam_coords[2] <= 1e-6:
+            return (float("inf"), float("inf"))
+        img = K @ cam_coords
+        return (float(img[0] / img[2]), float(img[1] / img[2]))
+
+    return project
+
+
+def identity_project(world_xy_or_xyz, cam_name: str) -> tuple[float, float]:
+    """Fallback projector when calibration isn't available — treats world x,y
+    as image pixel coordinates. Reprojection check with this fallback is
+    meaningless; we still run it to record the gap.
+    """
+    return (float(world_xy_or_xyz[0]), float(world_xy_or_xyz[1]))
 
 
 def adapt_scene(cfg: Config, work_dir: Path) -> dict:
@@ -36,7 +69,7 @@ def adapt_scene(cfg: Config, work_dir: Path) -> dict:
 
     cameras = discover_cameras(scene_dir)
     if not cameras:
-        raise FileNotFoundError(f"no Camera_*.mp4 under {scene_dir / 'videos'}")
+        raise FileNotFoundError(f"no camera_*.mp4 under {scene_dir / 'videos'}")
 
     log.info("adapter: scene=%s cameras=%d", cfg.scene, len(cameras))
     for cam in cameras:
@@ -58,10 +91,16 @@ def adapt_scene(cfg: Config, work_dir: Path) -> dict:
 
     mapping = json.loads(scene_json.read_text())[scene_name]
 
-    calib_dst = work_dir / "Original" / scene_name / "calibration.json"
+    # Calibration and gt_world.txt are placed OUTSIDE Original/scene_NNN/ because
+    # YACHIYO's upstream extract_frame.py walks every entry in Original/scene_NNN/
+    # and tries to create a Frame/ subdirectory inside each — which would fail
+    # on regular files. We keep Original/scene_NNN/ containing only camera dirs.
+    calib_dst = work_dir / f"{scene_name}_calibration.json"
     src_calib = scene_dir / "calibration.json"
+    calib_body: dict | None = None
     if src_calib.exists():
         adapt_calibration(src_calib, calib_dst, scene_mapping=mapping)
+        calib_body = json.loads(src_calib.read_text())
     else:
         log.warning("calibration.json missing; downstream calibration-dependent steps may fail")
 
@@ -75,11 +114,13 @@ def adapt_scene(cfg: Config, work_dir: Path) -> dict:
             frame_offset=int(cfg.clip.start_sec * cfg.fps),
             max_frames=int(cfg.clip.duration_sec * cfg.fps),
         )
+        project_fn = _projector_from_calibration(calib_body) if calib_body else identity_project
+        eps_px = 50.0 if calib_body else 200.0
         validation = reprojection_check(
             src_gt,
             scene_mapping=mapping,
-            project_fn=identity_project,
-            eps_px=200.0,
+            project_fn=project_fn,
+            eps_px=eps_px,
         )
         (work_dir / "gt_validation.json").write_text(json.dumps({
             "total": validation.total,

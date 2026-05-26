@@ -119,10 +119,14 @@ def cmd_viz(args) -> None:
                                           rd / "detect" / f"viz_{cam}.mp4",
                                           fps=cfg.fps)
     elif args.stage == "sct":
+        import re
         m = read_manifest(rd / "sct" / "manifest.json")
         for cam_stem, sct_json in m.outputs.items():
-            num = int(cam_stem.replace("camera", ""))
-            cam_name = f"camera_{num:04d}"
+            mm = re.search(r"camera(\d+)", cam_stem)
+            if not mm:
+                log.warning("cannot parse camera number from %s; skipping", cam_stem)
+                continue
+            cam_name = f"camera_{int(mm.group(1)):04d}"
             frame_dir = adapted_root / "Original" / scene / cam_name / "Frame"
             visualize.viz_tracks_from_yachiyo_sct(
                 frame_dir, Path(sct_json),

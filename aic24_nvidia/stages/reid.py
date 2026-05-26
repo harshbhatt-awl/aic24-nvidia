@@ -42,10 +42,17 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         ensure_dir_clean(emb_root)
         make_symlink(ctx.work_dir, emb_root)
 
+        # torchreid's setup.py is broken on Python 3.10+; we use PYTHONPATH
+        # so `import torchreid` resolves to external/deep-person-reid/torchreid/
+        # without needing pip install.
+        import os
+        env = os.environ.copy()
+        env["PYTHONPATH"] = f"{drid}{os.pathsep}{env.get('PYTHONPATH', '')}"
+
         with open(log_path, "w") as lf:
             proc = subprocess.run(
                 ["python3", "torchreid/aic24_extract.py", "-s", SCENE, "../"],
-                cwd=drid,
+                cwd=drid, env=env,
                 stdout=lf, stderr=subprocess.STDOUT,
             )
         if proc.returncode != 0:

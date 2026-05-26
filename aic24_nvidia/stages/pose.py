@@ -64,6 +64,15 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         ensure_dir_clean(pose_root)
         make_symlink(ctx.work_dir, pose_root)
 
+        # mmpose 0.x doesn't install on the main Python 3.14 venv. We use a
+        # parallel Python 3.10 venv at .venv-pose with torch 1.13.1+cu117 +
+        # mmcv-full 1.7.0 + mmpose 0.29.0.
+        pose_python = Path(__file__).resolve().parents[2] / ".venv-pose" / "bin" / "python"
+        if not pose_python.exists():
+            raise FileNotFoundError(
+                f"pose venv missing: {pose_python}. See README for setup."
+            )
+
         with open(log_path, "w") as lf:
             for cam in cams:
                 num = _camera_int_from_name(cam)
@@ -71,7 +80,7 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
                 video = f"../Original/{SCENE}/camera_{num}/video.mp4"
                 out_file = f"../Pose/{SCENE}/camera_{num}/camera_{num}_out_keypoint.json"
                 cmd = [
-                    "python3", "demo/top_down_video_demo_with_track_file.py",
+                    str(pose_python), "demo/top_down_video_demo_with_track_file.py",
                     det_txt, HRNET_CONFIG, HRNET_CKPT,
                     "--video-path", video,
                     "--out-file", out_file,

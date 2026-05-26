@@ -9,10 +9,33 @@ log = logging.getLogger(__name__)
 
 
 def patch_scene_camera_map(cfg_path: Path, scene: str, camera_ids: list[int]) -> None:
-    """Insert/replace `{scene: camera_ids}` into upstream's scene_2_camera_id_file.json."""
+    """Insert/replace the scene's camera_ids in upstream's scene_2_camera_id_file.json.
+
+    The upstream schema is a LIST of `{"scene_name": str, "camera_ids": [int, ...]}`
+    entries. We replace the matching entry's camera_ids (or append a new entry
+    if the scene isn't listed). Also accepts the dict-of-lists schema for
+    backward compatibility with older unit tests.
+    """
     cfg_path = Path(cfg_path)
-    body = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
-    body[scene] = camera_ids
+    if cfg_path.exists():
+        body = json.loads(cfg_path.read_text())
+    else:
+        body = []
+
+    if isinstance(body, list):
+        replaced = False
+        for entry in body:
+            if isinstance(entry, dict) and entry.get("scene_name") == scene:
+                entry["camera_ids"] = list(camera_ids)
+                replaced = True
+                break
+        if not replaced:
+            body.append({"scene_name": scene, "camera_ids": list(camera_ids)})
+    elif isinstance(body, dict):
+        body[scene] = list(camera_ids)
+    else:
+        raise ValueError(f"unrecognized scene_2_camera_id_file schema: {type(body)}")
+
     cfg_path.write_text(json.dumps(body, indent=2))
 
 

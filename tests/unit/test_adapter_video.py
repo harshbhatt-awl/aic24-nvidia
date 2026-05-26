@@ -43,7 +43,9 @@ def test_slice_video_rejects_overlong_window(src_video: Path, tmp_path: Path):
 
 def test_materialize_yachiyo_layout(tmp_path: Path):
     src_dir = tmp_path / "src"
-    for cam in ("Camera_0001", "Camera_0002"):
+    # Real NVIDIA Warehouse data uses lowercase camera_NNNN.mp4 names; the
+    # adapter preserves them (identity mapping).
+    for cam in ("camera_0390", "camera_0391"):
         _make_synthetic_video(src_dir / f"{cam}.mp4", duration_sec=10)
 
     target = tmp_path / "adapted"
@@ -51,12 +53,12 @@ def test_materialize_yachiyo_layout(tmp_path: Path):
         src_dir=src_dir,
         target_root=target,
         scene_name="scene_001",
-        camera_names=["Camera_0001", "Camera_0002"],
+        camera_names=["camera_0390", "camera_0391"],
         start_sec=0,
         duration_sec=5,
     )
 
-    assert (target / "Original" / "scene_001" / "camera_0001" / "video.mp4").exists()
-    assert (target / "Original" / "scene_001" / "camera_0002" / "video.mp4").exists()
+    assert (target / "Original" / "scene_001" / "camera_0390" / "video.mp4").exists()
+    assert (target / "Original" / "scene_001" / "camera_0391" / "video.mp4").exists()
     body = json.loads(scene_json.read_text())
-    assert body["scene_001"]["camera_0001"] == "Camera_0001"
+    assert body["scene_001"]["camera_0390"] == "camera_0390"

@@ -50,8 +50,9 @@ def materialize_yachiyo_layout(
 ) -> Path:
     """Materialize Original/<scene_name>/camera_NNNN/video.mp4 tree.
 
-    Maps NVIDIA Camera_NNNN -> YACHIYO camera_nnnn (lowercase). Writes a
-    scene.json beside Original/ that records the source mapping.
+    Preserves the source camera_NNNN names (which already match YACHIYO's
+    expected convention). Writes a scene.json beside Original/ that records
+    the source-to-target mapping (in this case, identity).
 
     Returns the path to scene.json.
     """
@@ -61,11 +62,11 @@ def materialize_yachiyo_layout(
     scene_dir.mkdir(parents=True, exist_ok=True)
 
     mapping: dict[str, dict[str, str]] = {scene_name: {}}
-    for i, cam in enumerate(camera_names, start=1):
+    for cam in camera_names:
         src = src_dir / f"{cam}.mp4"
         if not src.exists():
             raise FileNotFoundError(f"source video not found: {src}")
-        yachiyo_cam = f"camera_{i:04d}"
+        yachiyo_cam = cam  # preserve real camera name (e.g. camera_0390)
         dst = scene_dir / yachiyo_cam / "video.mp4"
         slice_video(src, dst, start_sec=start_sec, duration_sec=duration_sec)
         mapping[scene_name][yachiyo_cam] = cam

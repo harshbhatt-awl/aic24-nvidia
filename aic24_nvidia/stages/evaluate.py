@@ -21,9 +21,20 @@ SCENE = "scene_001"
 SCENE_TRACKEVAL = "S001"
 
 
+def _coord_to_xyxy(coord) -> tuple[float, float, float, float]:
+    """Accept Coordinate as either dict {x1,y1,x2,y2} (real YACHIYO) or list
+    [x1,y1,x2,y2] (older synthetic fixtures)."""
+    if isinstance(coord, dict):
+        return float(coord["x1"]), float(coord["y1"]), float(coord["x2"]), float(coord["y2"])
+    return float(coord[0]), float(coord[1]), float(coord[2]), float(coord[3])
+
+
 def yachiyo_sct_json_to_mot(src_json: Path, dst_txt: Path) -> None:
-    """Convert one camera's SCT JSON (serial->{Frame,OfflineID,Coordinate=[x1,y1,x2,y2]})
+    """Convert one camera's SCT JSON (serial->{Frame,OfflineID,Coordinate})
     into MOTChallenge-format predictions.
+
+    Coordinate is the YACHIYO native form: dict {x1,y1,x2,y2}. We emit one MOT
+    row per (Frame, OfflineID) pair using the converted (x,y,w,h).
     """
     src_json = Path(src_json); dst_txt = Path(dst_txt)
     body = json.loads(src_json.read_text())
@@ -33,7 +44,11 @@ def yachiyo_sct_json_to_mot(src_json: Path, dst_txt: Path) -> None:
             continue
         f = int(entry["Frame"])
         oid = int(entry["OfflineID"])
-        x1, y1, x2, y2 = entry["Coordinate"]
+        # YACHIYO emits unassigned detections with OfflineID < 0; drop them so
+        # MOT/TrackEval doesn't see duplicate "-1" track ids per frame.
+        if oid < 0:
+            continue
+        x1, y1, x2, y2 = _coord_to_xyxy(entry["Coordinate"])
         w = int(round(x2 - x1)); h = int(round(y2 - y1))
         rows.append((f, oid, int(round(x1)), int(round(y1)), w, h))
     rows.sort()
@@ -61,9 +76,16 @@ def yachiyo_mct_json_to_mot(src_json: Path, dst_dir: Path) -> None:
         for _serial, entry in entries.items():
             if not isinstance(entry, dict):
                 continue
+            # Skip entries with no GlobalOfflineID (e.g., when the correction
+            # step was skipped and only some tracks got assigned a global ID).
+            gid_raw = entry.get("GlobalOfflineID")
+            if gid_raw is None:
+                continue
+            gid = int(gid_raw)
+            if gid < 0:
+                continue
             f = int(entry["Frame"])
-            gid = int(entry["GlobalOfflineID"])
-            x1, y1, x2, y2 = entry["Coordinate"]
+            x1, y1, x2, y2 = _coord_to_xyxy(entry["Coordinate"])
             w = int(round(x2 - x1)); h = int(round(y2 - y1))
             per_cam[cam_name].append(
                 (f, gid, int(round(x1)), int(round(y1)), w, h)
@@ -77,15 +99,37 @@ def yachiyo_mct_json_to_mot(src_json: Path, dst_dir: Path) -> None:
 
 def _build_mot_layout(out_dir: Path, scene: str,
                       cam_gt: dict[str, Path],
-                      cam_pred: dict[str, Path]) -> None:
+                      cam_pred: dict[str, Path],
+                      seq_length: int = 900) -> None:
+    """Materialize a MOTChallenge-style tree TrackEval can consume:
+        out_dir/gt/<scene>-train/<scene>-<cam>/gt/gt.txt
+        out_dir/gt/<scene>-train/<scene>-<cam>/seqinfo.ini
+        out_dir/gt/seqmaps/<scene>-train.txt
+        out_dir/trackers/<scene>-train/yachiyo/data/<scene>-<cam>.txt
+    """
+    split = "train"
+    gt_root = out_dir / "gt" / f"{scene}-{split}"
+    trk_root = out_dir / "trackers" / f"{scene}-{split}" / "yachiyo" / "data"
+    seqmap_dir = out_dir / "gt" / "seqmaps"
+
+    seq_names = []
     for cam, gt_path in cam_gt.items():
-        dst = out_dir / "gt" / scene / f"{scene}-{cam}" / "gt"
-        dst.mkdir(parents=True, exist_ok=True)
-        shutil.copy(gt_path, dst / "gt.txt")
+        seq = f"{scene}-{cam}"
+        seq_names.append(seq)
+        dst_gt = gt_root / seq / "gt"
+        dst_gt.mkdir(parents=True, exist_ok=True)
+        shutil.copy(gt_path, dst_gt / "gt.txt")
+        # MOTChallenge seqinfo.ini stub
+        (gt_root / seq / "seqinfo.ini").write_text(
+            f"[Sequence]\nname={seq}\nseqLength={seq_length}\nimWidth=1920\nimHeight=1080\nframeRate=30\n"
+        )
     for cam, pred_path in cam_pred.items():
-        dst = out_dir / "trackers" / scene / "yachiyo" / "data"
-        dst.mkdir(parents=True, exist_ok=True)
-        shutil.copy(pred_path, dst / f"{scene}-{cam}.txt")
+        seq = f"{scene}-{cam}"
+        trk_root.mkdir(parents=True, exist_ok=True)
+        shutil.copy(pred_path, trk_root / f"{seq}.txt")
+
+    seqmap_dir.mkdir(parents=True, exist_ok=True)
+    (seqmap_dir / f"{scene}-{split}.txt").write_text("name\n" + "\n".join(seq_names) + "\n")
 
 
 def _summarize_metrics(metrics: dict) -> str:
@@ -100,8 +144,11 @@ def _summarize_metrics(metrics: dict) -> str:
 
 
 def _run_trackeval(mot_root: Path, scene: str, log_path: Path) -> dict:
+    # pip-installed trackeval doesn't include the runner scripts; we use the
+    # cloned external/TrackEval/scripts/run_mot_challenge.py instead.
+    trackeval_script = Path(__file__).resolve().parents[2] / "external" / "TrackEval" / "scripts" / "run_mot_challenge.py"
     cmd = [
-        sys.executable, "-m", "trackeval.scripts.run_mot_challenge",
+        sys.executable, str(trackeval_script),
         "--BENCHMARK", scene,
         "--GT_FOLDER", str(mot_root / "gt"),
         "--TRACKERS_FOLDER", str(mot_root / "trackers"),
@@ -110,6 +157,9 @@ def _run_trackeval(mot_root: Path, scene: str, log_path: Path) -> dict:
         "--USE_PARALLEL", "False",
         "--PRINT_RESULTS", "False",
         "--OUTPUT_DETAILED", "True",
+        "--PLOT_CURVES", "False",
+        "--SPLIT_TO_EVAL", "train",
+        "--DO_PREPROC", "False",
     ]
     with open(log_path, "w") as lf:
         proc = subprocess.run(cmd, stdout=lf, stderr=subprocess.STDOUT)
@@ -117,19 +167,39 @@ def _run_trackeval(mot_root: Path, scene: str, log_path: Path) -> dict:
         raise StageError("evaluate", proc.returncode, str(log_path))
 
     results: dict = {}
-    summary_dir = mot_root / "trackers" / scene / "yachiyo"
-    for f in sorted(summary_dir.glob("pedestrian_detailed.csv")):
-        with open(f) as fp:
-            reader = csv.DictReader(fp)
-            for row in reader:
-                seq = row.get("seq", "")
-                if not seq:
-                    continue
-                results[seq] = {
-                    "HOTA": float(row.get("HOTA", "nan")),
-                    "IDF1": float(row.get("IDF1", "nan")),
-                    "MOTA": float(row.get("MOTA", "nan")),
-                }
+    # TrackEval writes to TRACKERS_FOLDER/<scene>-train/yachiyo/pedestrian_detailed.csv
+    summary_csv = (mot_root / "trackers" / f"{scene}-train" / "yachiyo"
+                   / "pedestrian_detailed.csv")
+    if not summary_csv.exists():
+        # Fallback search in case TrackEval used a different layout.
+        candidates = list((mot_root / "trackers").rglob("pedestrian_detailed.csv"))
+        if not candidates:
+            raise StageError("evaluate", 0, str(log_path))
+        summary_csv = candidates[0]
+
+    with open(summary_csv) as fp:
+        reader = csv.DictReader(fp)
+        for row in reader:
+            seq = row.get("seq", "")
+            if not seq:
+                continue
+            # TrackEval's "primary" HOTA column is HOTA(0); the value-at-each-
+            # threshold columns are HOTA___5, HOTA___10, .... We use HOTA(0).
+            def _maybe(key):
+                v = row.get(key, "")
+                try:
+                    return float(v)
+                except (TypeError, ValueError):
+                    return float("nan")
+            results[seq] = {
+                "HOTA": _maybe("HOTA(0)"),
+                "IDF1": _maybe("IDF1"),
+                "MOTA": _maybe("MOTA"),
+                "MOTP": _maybe("MOTP"),
+                "IDR":  _maybe("IDR"),
+                "IDP":  _maybe("IDP"),
+                "CLR_F1": _maybe("CLR_F1"),
+            }
     return results
 
 
@@ -140,6 +210,7 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
     sct_manifest = read_manifest(sct_manifest_path)
     mct_manifest = read_manifest(mct_manifest_path)
 
+    import re
     cam_gt: dict[str, Path] = {}
     cam_pred_sct: dict[str, Path] = {}
 
@@ -149,12 +220,15 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         # Build SCT preds (per-camera MOT)
         sct_pred_dir = ctx.work_dir / "sct_pred"
         for cam_stem, sct_json in sct_manifest.outputs.items():
-            # cam_stem is "camera<NNN>" (zero-padded to 3 digits, no underscore).
-            # Convert to "camera_NNNN" (zero-padded to 4 digits) for layout consistency.
-            num = int(cam_stem.replace("camera", ""))
+            # cam_stem is e.g. "camera390_tracking_results"; extract the digits.
+            m = re.search(r"camera(\d+)", cam_stem)
+            if not m:
+                log.warning("cannot extract camera number from %s; skipping", cam_stem)
+                continue
+            num = int(m.group(1))
             cam_name = f"camera_{num:04d}"
             gt = adapted_root / "Original" / SCENE / cam_name / "gt" / "gt.txt"
-            if not gt.exists():
+            if not gt.exists() or gt.stat().st_size == 0:
                 log.warning("no GT for %s; skipping", cam_name)
                 continue
             mot_pred = sct_pred_dir / f"{cam_name}.txt"
@@ -169,10 +243,15 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         log_path = ctx.work_dir / "log.txt"
         metrics = _run_trackeval(mot_root, SCENE_TRACKEVAL, log_path)
 
-        # Also convert MCT JSON for record-keeping (not currently evaluated separately
-        # because MCT HOTA needs a different TrackEval dataset adapter; v2 work).
+        # Also convert MCT JSON for record-keeping if MCT actually ran.
+        # If MCT was stubbed (skipped due to missing pose), the manifest's outputs
+        # won't have global_tracks_json — we skip the conversion in that case.
         mct_pred_dir = ctx.work_dir / "mct_pred"
-        yachiyo_mct_json_to_mot(Path(mct_manifest.outputs["global_tracks_json"]), mct_pred_dir)
+        mct_global = mct_manifest.outputs.get("global_tracks_json") if mct_manifest.outputs else None
+        if mct_global:
+            yachiyo_mct_json_to_mot(Path(mct_global), mct_pred_dir)
+        else:
+            log.info("MCT outputs not present (likely stubbed); skipping MCT conversion")
 
         (ctx.work_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
         (ctx.work_dir / "summary.md").write_text(_summarize_metrics(metrics))
