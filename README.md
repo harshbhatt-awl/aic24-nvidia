@@ -23,3 +23,31 @@ cd ..
 python pipeline.py all --config configs/warehouse_001_30s.yaml
 python pipeline.py dashboard --port 8501
 ```
+
+## Manual smoke test (before committing GPU hours)
+
+After cloning a real NVIDIA Warehouse scene into `data/nvidia_mtmc_2024/Warehouse_001/`:
+
+```bash
+# 1. Adapt only — 5 seconds, no GPU needed
+python -c "
+import yaml, pathlib
+cfg = yaml.safe_load(open('configs/warehouse_001_30s.yaml'))
+cfg['clip']['duration_sec'] = 5
+pathlib.Path('configs/smoke.yaml').write_text(yaml.safe_dump(cfg))
+"
+python pipeline.py adapt --config configs/smoke.yaml
+
+# 2. Find the most recent run
+ls -t outputs/ | head -1
+RUN_ID=$(ls -t outputs/ | head -1)
+
+# 3. Open a frame manually to sanity-check
+ffmpeg -y -ss 0 -i "outputs/$RUN_ID/adapted/Original/scene_001/camera_0001/video.mp4" -frames:v 1 /tmp/smoke.jpg
+xdg-open /tmp/smoke.jpg  # or open /tmp/smoke.jpg on macOS
+
+# 4. Inspect GT validation
+cat outputs/$RUN_ID/adapted/gt_validation.json | jq .match_ratio
+
+# If match_ratio >= 0.95 and the frame looks sane, proceed to a full GPU run.
+```
