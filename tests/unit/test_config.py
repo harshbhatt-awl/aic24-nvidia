@@ -59,3 +59,55 @@ def test_config_filename_property(tmp_path):
     p = _write(tmp_path, _minimal(tmp_path))
     cfg = load_config(p)
     assert cfg.config_filename == "cfg"
+
+
+def test_config_loads_eval_and_tracking_params(tmp_path):
+    from aic24_nvidia.config import load_config
+    cfg_text = """
+scene: Warehouse_001
+data_root: ./data
+weights_root: ./weights
+outputs_root: ./outputs
+external_root: ./external
+clip: {start_sec: 0, duration_sec: 30}
+detect: {conf_thresh: 0.5, nms_iou: 0.5}
+reid: {similarity_thresh: 0.7}
+pose: {keypoint_conf: 0.3}
+sct: {track_buffer: 30, match_thresh: 0.8}
+mct: {cluster_thresh: 0.6, min_track_len: 10, hard_world_gate: true}
+tracking_params: {epsilon_mcpt: 0.37, distance_th: 10, short_track_th: 120}
+eval: {world_d_max: 1.0}
+vram_min_free_gb: 4.0
+fps: 30
+"""
+    p = tmp_path / "c.yaml"
+    p.write_text(cfg_text)
+    cfg = load_config(p)
+    assert cfg.eval.world_d_max == 1.0
+    assert cfg.mct.hard_world_gate is True
+    assert cfg.tracking_params["epsilon_mcpt"] == 0.37
+
+
+def test_config_defaults_when_optional_blocks_missing(tmp_path):
+    from aic24_nvidia.config import load_config
+    cfg_text = """
+scene: Warehouse_001
+data_root: ./data
+weights_root: ./weights
+outputs_root: ./outputs
+external_root: ./external
+clip: {start_sec: 0, duration_sec: 30}
+detect: {conf_thresh: 0.5, nms_iou: 0.5}
+reid: {similarity_thresh: 0.7}
+pose: {keypoint_conf: 0.3}
+sct: {track_buffer: 30, match_thresh: 0.8}
+mct: {cluster_thresh: 0.6, min_track_len: 10}
+vram_min_free_gb: 4.0
+fps: 30
+"""
+    p = tmp_path / "c.yaml"
+    p.write_text(cfg_text)
+    cfg = load_config(p)
+    assert cfg.eval.world_d_max == 1.0          # default
+    assert cfg.mct.hard_world_gate is False     # default
+    assert cfg.tracking_params == {}            # default empty

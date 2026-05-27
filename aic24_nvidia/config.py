@@ -37,6 +37,12 @@ class SctCfg:
 class MctCfg:
     cluster_thresh: float
     min_track_len: int
+    hard_world_gate: bool = False
+
+
+@dataclass(frozen=True)
+class EvalCfg:
+    world_d_max: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -52,6 +58,8 @@ class Config:
     pose: PoseCfg
     sct: SctCfg
     mct: MctCfg
+    eval: EvalCfg
+    tracking_params: dict
     vram_min_free_gb: float
     fps: int
     config_path: Path
@@ -106,6 +114,16 @@ def load_config(path: Path) -> Config:
     if clip.start_sec < 0:
         raise ConfigError("clip.start_sec must be >= 0")
 
+    mct_body = dict(body["mct"])
+    mct = MctCfg(
+        cluster_thresh=mct_body["cluster_thresh"],
+        min_track_len=mct_body["min_track_len"],
+        hard_world_gate=bool(mct_body.get("hard_world_gate", False)),
+    )
+    eval_body = body.get("eval") or {}
+    eval_cfg = EvalCfg(world_d_max=float(eval_body.get("world_d_max", 1.0)))
+    tracking_params = dict(body.get("tracking_params") or {})
+
     return Config(
         scene=body["scene"],
         data_root=Path(body["data_root"]).resolve(),
@@ -117,7 +135,9 @@ def load_config(path: Path) -> Config:
         reid=ReidCfg(**body["reid"]),
         pose=PoseCfg(**body["pose"]),
         sct=SctCfg(**body["sct"]),
-        mct=MctCfg(**body["mct"]),
+        mct=mct,
+        eval=eval_cfg,
+        tracking_params=tracking_params,
         vram_min_free_gb=float(body["vram_min_free_gb"]),
         fps=int(body["fps"]),
         config_path=path.resolve(),

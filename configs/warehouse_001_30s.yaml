@@ -19,5 +19,19 @@ sct:
 mct:
   cluster_thresh: 0.6
   min_track_len: 10
+  hard_world_gate: false
+eval:
+  world_d_max: 1.0          # m; world-distance gate for MCT HOTA matching
+tracking_params:            # real YACHIYO keys; propagated to parameters_per_scene.py
+  epsilon_scpt: 0.10
+  time_period: 3
+  epsilon_mcpt: 0.37
+  short_track_th: 120
+  keypoint_condition_th: 1
+  replace_similarity_by_wcoordinate: true
+  distance_type: min
+  distance_th: 10           # m; world cannot-link threshold
+  sim_th: 0.85
+  delete_gid_th: 5000
 vram_min_free_gb: 4.0
 fps: 30
