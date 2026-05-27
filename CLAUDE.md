@@ -69,8 +69,14 @@ Full 30s run ≈ 1 hour: detect ~26 min, reid ~8 min, pose ~15 min, the rest sec
 
 ## Gotchas / known issues
 
-- **Hyperparameters in `configs/*.yaml` are recorded in manifests but NOT propagated to upstream** —
-  upstream hardcodes them. Tuning is v2 work.
+- **Hyperparameters ARE now propagated.** `tracking_params:` in `configs/*.yaml` (real YACHIYO keys:
+  `epsilon_scpt`, `epsilon_mcpt`, `short_track_th`, `distance_th`, `sim_th`, `keypoint_condition_th`,
+  `replace_similarity_by_wcoordinate`, `distance_type`, `delete_gid_th`, `time_period`,
+  `replace_value`) are written to
+  `external/AIC24_Track1_YACHIYO_RIIPS/tracking/config/parameters_per_scene.py` by
+  `aic24_nvidia/tracking_params.py` before each SCT/MCT run; `infer.py` reads that file natively.
+  `mct.hard_world_gate: true` pushes `replace_value` very negative for a hard world-distance
+  cannot-link.
 - **Manifest paths capture the `.tmp` dir** (written before the atomic rename). When a later stage reads
   an upstream manifest's `outputs` paths, they may point at `<stage>.tmp/...` which no longer exists.
   Workaround so far: sed-replace `<stage>.tmp` → `<stage>` in the manifests. **Proper fix needed:**
@@ -78,8 +84,12 @@ Full 30s run ≈ 1 hour: detect ~26 min, reid ~8 min, pose ~15 min, the rest sec
 - **MCT depends on real pose data** AND on per-camera `Original/scene_NNN/camera_NNNN/calibration.json`
   containing `"camera projection matrix"` (3×4 K[R|t]) and `"homography matrix"` (3×3 world→image for
   Z=0). The adapter must write these; SCT reads them to populate `WorldCoordinate`, which MCT requires.
-- **MCT/eval only cover per-camera SCT metrics in v1.** MCT HOTA/IDF1 needs a TrackEval dataset adapter
-  for 3D world coords — not done.
+- **MCT 3D-world eval IS now done.** `evaluate` emits a scene-level `mct_world` block in
+  `metrics.json` (HOTA/DetA/AssA/IDF1/MOTA), matching predicted vs GT world points by Euclidean
+  distance with a gate of `eval.world_d_max` metres (default 1.0 m). Predictions come from averaging
+  per-camera `WorldCoordinate` per `(frame, global_id)` (`aic24_nvidia/world_tracks.py`); scoring
+  uses a custom TrackEval `NvidiaMTMCWorld` dataset adapter (`aic24_nvidia/world_metrics.py`). GT is
+  the adapter's `adapted/scene_001_gt_world.txt`.
 - Detection hardcodes 1920×1080. NVIDIA Warehouse footage is 1080p, so fine here.
 
 ## Upstream patches applied (don't revert)
