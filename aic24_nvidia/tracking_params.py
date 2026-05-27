@@ -1,5 +1,4 @@
 from __future__ import annotations
-import json
 import pprint
 from pathlib import Path
 
@@ -50,8 +49,6 @@ def write_parameters_per_scene(cfg: Config, yachiyo_root: Path, scene_int: int) 
     infer.py does: parameters_per_scene[scene]["tracking_parameters"].
     """
     params = build_tracking_params(cfg)
-    if not params:
-        raise RuntimeError("build_tracking_params produced an empty dict")
     dst = Path(yachiyo_root) / "tracking" / "config" / "parameters_per_scene.py"
     dst.parent.mkdir(parents=True, exist_ok=True)
     body = (

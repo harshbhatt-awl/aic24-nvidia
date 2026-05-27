@@ -1,8 +1,14 @@
 from pathlib import Path
 import importlib.util
 
+import pytest
+
 from aic24_nvidia.config import load_config
-from aic24_nvidia.tracking_params import build_tracking_params, write_parameters_per_scene
+from aic24_nvidia.tracking_params import (
+    TRACKING_PARAM_DEFAULTS,
+    build_tracking_params,
+    write_parameters_per_scene,
+)
 
 
 def _write_cfg(tmp_path, extra_mct="", tracking_params_block="tracking_params: {}"):
@@ -34,7 +40,7 @@ def test_build_uses_defaults_then_overrides(tmp_path):
     assert params["epsilon_scpt"] == 0.10
     assert params["replace_value"] == -10
     assert params["epsilon_mcpt"] == 0.25
-    assert len(params) >= 10
+    assert len(params) == len(TRACKING_PARAM_DEFAULTS)
 
 
 def test_hard_world_gate_sets_large_negative_replace_value(tmp_path):
@@ -55,3 +61,9 @@ def test_write_parameters_per_scene_is_importable(tmp_path):
     spec.loader.exec_module(mod)
     assert 1 in mod.parameters_per_scene
     assert mod.parameters_per_scene[1]["tracking_parameters"]["epsilon_mcpt"] == 0.37
+
+
+def test_unknown_tracking_param_raises(tmp_path):
+    cfg = _write_cfg(tmp_path, tracking_params_block="tracking_params: {bogus_key: 1}")
+    with pytest.raises(ValueError, match="unknown tracking_params key"):
+        build_tracking_params(cfg)
