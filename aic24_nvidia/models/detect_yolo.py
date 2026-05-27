@@ -85,3 +85,8 @@ def run_detection(scene_dir, det_out_dir, cams, conf_thresh, nms_iou,
             det_dir=Path(det_out_dir) / scene, cam=cam, dets_by_frame=dets_by_frame,
             img_rel_for_frame=lambda f, c=cam, s=scene: f"Original/{s}/{c}/Frame/{f:06d}.jpg",
         )
+    del model
+    import gc, torch
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()

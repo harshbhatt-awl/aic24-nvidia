@@ -136,6 +136,15 @@ def extract_camera(
         json.dump(jf, f, ensure_ascii=False)
 
 
+def _release_gpu():
+    global _MODEL
+    _MODEL = None
+    import gc, torch
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 def run_reid(
     det_scene_dir,
     original_scene_dir,
@@ -146,3 +155,4 @@ def run_reid(
     """Run ReID embedding extraction for all cameras in a scene."""
     for cam in cams:
         extract_camera(det_scene_dir, original_scene_dir, emb_out_dir, scene, cam)
+    _release_gpu()

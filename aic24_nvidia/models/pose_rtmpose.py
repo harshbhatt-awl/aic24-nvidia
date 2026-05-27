@@ -99,6 +99,19 @@ def _estimate(img, bboxes):
     return out
 
 
+def _release_gpu():
+    global _MODEL
+    _MODEL = None
+    import gc
+    gc.collect()
+    try:
+        import torch  # type: ignore
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Part A: format-writing logic (fully tested, estimate is injectable)
 # ---------------------------------------------------------------------------
@@ -176,3 +189,4 @@ def run_pose(
 
         with open(out_path, "w") as f:
             json.dump(save, f)
+    _release_gpu()
