@@ -8,6 +8,7 @@ from ..bootstrap import ensure_dir_clean, make_symlink
 from ..config import Config
 from ..errors import StageError, ValidationError
 from ..paths import stage_dir
+from ..tracking_params import write_parameters_per_scene, build_tracking_params
 from .base import atomic_stage, assert_vram_free
 
 log = logging.getLogger(__name__)
@@ -60,6 +61,14 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
             ensure_dir_clean(link)
             make_symlink(target, link)
 
+        # Propagate hyperparameters: write parameters_per_scene.py so infer.py
+        # reads our config instead of falling back to hardcoded defaults.
+        params = build_tracking_params(cfg)
+        if not params:
+            raise StageError("mct", 1, str(log_path))
+        write_parameters_per_scene(cfg, yachiyo, SCENE_INT)
+        log.info("mct tracking_params: %s", params)
+
         with open(log_path, "w") as lf:
             proc = subprocess.run(
                 ["python", "tracking/infer.py", "-s", str(SCENE_INT), "-mcpt"],
@@ -92,9 +101,9 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         ctx.set_inputs({"sct_manifest": str(sct_manifest)})
         ctx.set_outputs({"global_tracks_json": str(whole)})
         ctx.set_params({
-            "cluster_thresh": cfg.mct.cluster_thresh,
-            "min_track_len": cfg.mct.min_track_len,
-            "note": "hyperparams recorded but not propagated to upstream",
+            "tracking_params": params,
+            "hard_world_gate": cfg.mct.hard_world_gate,
+            "propagated_via": "parameters_per_scene.py",
         })
         ctx.set_upstream([str(sct_manifest)])
 

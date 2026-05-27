@@ -8,6 +8,7 @@ from ..bootstrap import ensure_dir_clean, make_symlink, patch_scene_camera_map
 from ..config import Config
 from ..errors import StageError, ValidationError
 from ..paths import stage_dir
+from ..tracking_params import write_parameters_per_scene, build_tracking_params
 from .base import atomic_stage, assert_vram_free
 
 log = logging.getLogger(__name__)
@@ -68,6 +69,12 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
             ensure_dir_clean(link)
             make_symlink(target, link)
 
+        params = build_tracking_params(cfg)
+        if not params:
+            raise StageError("sct", 1, str(log_path))
+        write_parameters_per_scene(cfg, yachiyo, SCENE_INT)
+        log.info("sct tracking_params: %s", params)
+
         with open(log_path, "w") as lf:
             proc = subprocess.run(
                 ["python", "tracking/infer.py", "-s", str(SCENE_INT), "-scpt"],
@@ -86,10 +93,11 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         ctx.set_inputs({"pose_manifest": str(pose_manifest)})
         ctx.set_outputs(outputs)
         ctx.set_params({
+            "tracking_params": params,
             "track_buffer": cfg.sct.track_buffer,
             "match_thresh": cfg.sct.match_thresh,
-            "note": "hyperparams recorded but not propagated to upstream",
             "patched_scene_camera_map": True,
+            "propagated_via": "parameters_per_scene.py",
         })
         ctx.set_upstream([str(pose_manifest)])
 
