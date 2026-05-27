@@ -66,6 +66,7 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         params = build_tracking_params(cfg)
         if not params:
             raise StageError("mct", 1, str(log_path))
+        # NOTE: this writes to the shared external/ tree; concurrent runs would race on it.
         write_parameters_per_scene(cfg, yachiyo, SCENE_INT)
         log.info("mct tracking_params: %s", params)
 
