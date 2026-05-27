@@ -1,5 +1,6 @@
 from __future__ import annotations
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -59,9 +60,17 @@ def run_world_eval(gt_txt: Path, pred_txt: Path, d_max: float,
             self.seq_list = [seq_name]
             self.output_fol = None
             self.output_sub_fol = None
+            self.tracker_list = ["world"]
+
+        @staticmethod
+        def get_default_dataset_config():
+            return {}
 
         def get_name(self):
             return "NvidiaMTMCWorld"
+
+        def get_output_fol(self, tracker):
+            return tempfile.gettempdir()
 
         def get_display_name(self, tracker):
             return tracker
