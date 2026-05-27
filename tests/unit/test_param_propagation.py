@@ -25,6 +25,10 @@ fps: 30
     p.write_text(text)
     cfg = load_config(p)
     out = write_parameters_per_scene(cfg, tmp_path, scene_int=1)
-    content = out.read_text()
-    assert "tracking_parameters" in content
-    assert "0.2" in content  # our override landed
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("pps_prop_test", out)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    tp = mod.parameters_per_scene[1]["tracking_parameters"]
+    assert "tracking_parameters" in out.read_text()
+    assert tp["epsilon_mcpt"] == 0.20   # our override landed
