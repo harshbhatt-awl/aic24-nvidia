@@ -1,11 +1,10 @@
 from __future__ import annotations
 import logging
-import subprocess
 from pathlib import Path
 
 from ..bootstrap import ensure_dir_clean, make_symlink
 from ..config import Config
-from ..errors import StageError, ValidationError
+from ..errors import ValidationError
 from ..paths import stage_dir
 from .base import atomic_stage, assert_vram_free
 
@@ -32,16 +31,8 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
     assert_vram_free(cfg.vram_min_free_gb)
 
     frames_manifest = stage_dir(run_dir, "frames") / "manifest.json"
-    botsort = cfg.external_root / "BoT-SORT"
-    if not botsort.exists():
-        raise FileNotFoundError(f"BoT-SORT not found at {botsort} — run scripts/bootstrap_external.sh")
-    injected = botsort / "tools" / "aic24_get_detection.py"
-    if not injected.exists():
-        raise FileNotFoundError(f"injected file missing: {injected} — re-run bootstrap")
 
     with atomic_stage(run_dir, "detect", run_id=run_id) as ctx:
-        log_path = ctx.work_dir / "log.txt"
-
         # Symlink external/Detection -> outputs/<run_id>/detect.tmp
         # so upstream writes its results directly into our managed run dir.
         # NOTE: ctx.work_dir is detect.tmp; after the stage completes, the
@@ -51,15 +42,19 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         ensure_dir_clean(det_root)
         make_symlink(ctx.work_dir, det_root)
 
-        # Run upstream
-        with open(log_path, "w") as lf:
-            proc = subprocess.run(
-                ["python3", "tools/aic24_get_detection.py", "-s", SCENE, "../"],
-                cwd=botsort,
-                stdout=lf, stderr=subprocess.STDOUT,
-            )
-        if proc.returncode != 0:
-            raise StageError("detect", proc.returncode, str(log_path))
+        # Run YOLO11 detection via adapter
+        from ..models import detect_yolo
+        original = cfg.external_root / "Original"
+        scene_src = original / SCENE
+        cams = sorted(p.name for p in scene_src.iterdir() if p.is_dir())
+        detect_yolo.run_detection(
+            scene_dir=scene_src,
+            det_out_dir=ctx.work_dir,
+            cams=cams,
+            conf_thresh=cfg.detect.conf_thresh,
+            nms_iou=cfg.detect.nms_iou,
+            weights="yolo11x.pt",
+        )
 
         det_files = _per_cam_detection_files(ctx.work_dir)
         if not det_files:
@@ -73,9 +68,9 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         ctx.set_inputs({"frames_manifest": str(frames_manifest)})
         ctx.set_outputs(det_files)
         ctx.set_params({
+            "model": "yolo11x",
             "conf_thresh": cfg.detect.conf_thresh,
             "nms_iou": cfg.detect.nms_iou,
-            "note": "hyperparams recorded but not propagated to upstream (hardcoded in aic24_get_detection.py)",
         })
         ctx.set_upstream([str(frames_manifest)])
 
