@@ -1,6 +1,8 @@
 from __future__ import annotations
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 import yaml
 from .errors import ConfigError
 
@@ -59,7 +61,7 @@ class Config:
     sct: SctCfg
     mct: MctCfg
     eval: EvalCfg
-    tracking_params: dict
+    tracking_params: Mapping[str, object]
     vram_min_free_gb: float
     fps: int
     config_path: Path
@@ -114,15 +116,14 @@ def load_config(path: Path) -> Config:
     if clip.start_sec < 0:
         raise ConfigError("clip.start_sec must be >= 0")
 
-    mct_body = dict(body["mct"])
     mct = MctCfg(
-        cluster_thresh=mct_body["cluster_thresh"],
-        min_track_len=mct_body["min_track_len"],
-        hard_world_gate=bool(mct_body.get("hard_world_gate", False)),
+        cluster_thresh=body["mct"]["cluster_thresh"],
+        min_track_len=body["mct"]["min_track_len"],
+        hard_world_gate=bool(body["mct"].get("hard_world_gate", False)),
     )
     eval_body = body.get("eval") or {}
-    eval_cfg = EvalCfg(world_d_max=float(eval_body.get("world_d_max", 1.0)))
-    tracking_params = dict(body.get("tracking_params") or {})
+    eval_cfg = EvalCfg(**eval_body) if eval_body else EvalCfg()
+    tracking_params = MappingProxyType(dict(body.get("tracking_params") or {}))
 
     return Config(
         scene=body["scene"],
