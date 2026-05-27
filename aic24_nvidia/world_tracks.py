@@ -23,14 +23,22 @@ def aggregate_world_tracks(mct_json: Path) -> tuple[list[tuple[int, int, float, 
                 continue
             gid = e.get("GlobalOfflineID")
             wc = e.get("WorldCoordinate")
-            if gid is None or int(gid) < 0 or not isinstance(wc, dict):
+            frame = e.get("Frame")
+            if gid is None or not isinstance(wc, dict) or frame is None:
                 dropped += 1
                 continue
-            x, y = float(wc.get("x", float("nan"))), float(wc.get("y", float("nan")))
-            if not (math.isfinite(x) and math.isfinite(y)):
+            try:
+                gid_i = int(gid)
+                frame_i = int(frame)
+                x = float(wc.get("x", float("nan")))
+                y = float(wc.get("y", float("nan")))
+            except (TypeError, ValueError):
                 dropped += 1
                 continue
-            acc[(int(e["Frame"]), int(gid))].append((x, y))
+            if gid_i < 0 or not (math.isfinite(x) and math.isfinite(y)):
+                dropped += 1
+                continue
+            acc[(frame_i, gid_i)].append((x, y))
     rows: list[tuple[int, int, float, float]] = []
     for (frame, gid), pts in acc.items():
         mx = sum(p[0] for p in pts) / len(pts)

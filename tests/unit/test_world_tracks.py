@@ -39,6 +39,7 @@ def test_aggregate_means_across_cameras_and_drops_invalid(tmp_path):
     assert (2, 7, 1.0, 1.0) in rows
     assert all(gid == 7 for (_f, gid, _x, _y) in rows)
     assert dropped == 2  # the None-gid row and the NaN row
+    assert len(rows) == 2
 
 
 def test_write_world_pred_format(tmp_path):
@@ -47,3 +48,22 @@ def test_write_world_pred_format(tmp_path):
     write_world_pred(rows, out)
     lines = out.read_text().strip().splitlines()
     assert lines[0] == "1,7,3.0,6.0"
+    assert len(lines) == 2
+
+
+def test_aggregate_empty_and_malformed(tmp_path):
+    import json
+    empty = tmp_path / "empty.json"
+    empty.write_text("{}")
+    rows, dropped = aggregate_world_tracks(empty)
+    assert rows == [] and dropped == 0
+
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps({"390": {
+        "00000001": {"Frame": 1, "WorldCoordinate": {"x": 1.0, "y": 2.0}, "GlobalOfflineID": "oops"},
+        "00000002": {"WorldCoordinate": {"x": 1.0, "y": 2.0}, "GlobalOfflineID": 3},  # missing Frame
+        "00000003": {"Frame": 2, "WorldCoordinate": {"x": 0.0, "y": 0.0}, "GlobalOfflineID": 0},  # gid 0 valid
+    }}))
+    rows, dropped = aggregate_world_tracks(bad)
+    assert dropped == 2                       # non-numeric gid + missing Frame
+    assert (2, 0, 0.0, 0.0) in rows           # gid 0 is kept
