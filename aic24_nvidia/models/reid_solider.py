@@ -23,6 +23,19 @@ import numpy as np
 from PIL import Image
 
 _MODEL = None
+_TRANSFORM = None
+
+
+def _get_transform():
+    global _TRANSFORM
+    if _TRANSFORM is None:
+        import torchvision.transforms as T  # type: ignore
+        _TRANSFORM = T.Compose([
+            T.Resize([256, 128]),
+            T.ToTensor(),
+            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+    return _TRANSFORM
 
 
 def _embed(crop: Image.Image) -> np.ndarray:
@@ -33,7 +46,6 @@ def _embed(crop: Image.Image) -> np.ndarray:
     aic24_nvidia/models/solider/__init__.py for download instructions).
     """
     import torch
-    import torchvision.transforms as T  # type: ignore
 
     global _MODEL
     if _MODEL is None:
@@ -41,14 +53,11 @@ def _embed(crop: Image.Image) -> np.ndarray:
 
         _weights = Path(__file__).parent.parent.parent / "weights" / "solider_swin_small.pth"
         _MODEL = load_solider_swin_small(_weights)
-        _MODEL.eval().cuda()
+        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        _MODEL.eval().to(dev)
 
-    tf = T.Compose([
-        T.Resize([256, 128]),
-        T.ToTensor(),
-        T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
-    x = tf(crop.convert("RGB")).unsqueeze(0).cuda()
+    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    x = _get_transform()(crop.convert("RGB")).unsqueeze(0).to(dev)
     with torch.no_grad():
         feat = _MODEL(x)
     return feat.cpu().numpy()[0].astype(np.float32)
@@ -82,6 +91,9 @@ def extract_camera(
 
     det_scene_dir = Path(det_scene_dir)
     dets = np.genfromtxt(det_scene_dir / f"{cam}.txt", dtype=str, delimiter=",")
+    if dets.ndim == 1 and dets.shape[0] == 0:
+        # Empty file — nothing to embed, NpyPaths unchanged, nothing to write back
+        return
     if dets.ndim == 1:
         # Single detection row → reshape to (1, N)
         dets = dets.reshape(1, -1)

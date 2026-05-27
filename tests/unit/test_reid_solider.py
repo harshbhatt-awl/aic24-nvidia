@@ -21,7 +21,7 @@ def test_npy_filename_and_json_update_match_upstream(tmp_path, monkeypatch):
     monkeypatch.setattr(reid_solider, "_embed", lambda crop: np.ones(768, dtype=np.float32))
     reid_solider.extract_camera(
         det_scene_dir=det_dir, original_scene_dir=tmp_path / "Original" / scene,
-        emb_out_dir=emb_dir, scene=scene, cam=cam, embed=reid_solider._embed)
+        emb_out_dir=emb_dir, scene=scene, cam=cam, embed=None)
 
     files = list((emb_dir / scene / cam).glob("*.npy"))
     assert len(files) == 1
@@ -29,3 +29,22 @@ def test_npy_filename_and_json_update_match_upstream(tmp_path, monkeypatch):
     assert np.load(files[0]).shape == (768,)
     j = json.loads((det_dir / f"{cam}.json").read_text())
     assert j["00000000"]["NpyPath"] == f"{scene}/{cam}/feature_5_1_10_110_20_220_091.npy"
+
+
+def test_empty_detection_file_is_noop(tmp_path, monkeypatch):
+    scene, cam = "scene_001", "camera_0390"
+    det_dir = tmp_path / "Detection" / scene
+    det_dir.mkdir(parents=True)
+    (det_dir / f"{cam}.txt").write_text("")
+    (det_dir / f"{cam}.json").write_text(json.dumps({}))
+    emb_dir = tmp_path / "EmbedFeature"
+
+    monkeypatch.setattr(reid_solider, "_embed", lambda crop: np.ones(768, dtype=np.float32))
+    # Should not raise and should not create any .npy files
+    reid_solider.extract_camera(
+        det_scene_dir=det_dir, original_scene_dir=tmp_path / "Original" / scene,
+        emb_out_dir=emb_dir, scene=scene, cam=cam, embed=None)
+
+    # No output directory / npy files should have been created
+    cam_out = emb_dir / scene / cam
+    assert not cam_out.exists() or list(cam_out.glob("*.npy")) == []

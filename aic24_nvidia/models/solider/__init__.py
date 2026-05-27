@@ -72,6 +72,9 @@ class _SOLIDERSwinSmall(nn.Module):
             num_classes=0,        # strip classifier head → returns (B, 768)
             img_size=img_size,
         )
+        # NOTE: bottleneck is intentionally NOT used in forward() — NECK_FEAT='before'
+        # means we return global_feat (pre-BN).  The layer is kept here so that
+        # load_state_dict(strict=True) can load the BN neck weights from the checkpoint.
         self.bottleneck = nn.BatchNorm1d(_SWIN_SMALL_FEAT_DIM)
         self.bottleneck.bias.requires_grad_(False)
 
