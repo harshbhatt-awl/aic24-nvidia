@@ -23,7 +23,7 @@ def _write_camera(det_dir, cam, dets_by_frame, img_rel_for_frame):
         for (x1, y1, x2, y2, score) in dets_by_frame[frame_id]:
             x1 = int(max(0, x1)); y1 = int(max(0, y1))
             x2 = int(min(CLAMP_W, x2)); y2 = int(min(CLAMP_H, y2))
-            lines.append(f"{cam},{frame_id},1,{x1},{y1},{x2},{y2},{score}")
+            lines.append(f"{cam},{frame_id},1,{x1},{y1},{x2},{y2},{score:.6g}")
             ret_json[str(u_num).zfill(8)] = {
                 "Frame": frame_id,
                 "ImgPath": img_rel_for_frame(frame_id),
@@ -49,6 +49,8 @@ def run_detection(scene_dir, det_out_dir, cams, conf_thresh, nms_iou, weights="y
         frame_paths = sorted(frame_dir.glob("*.jpg"))
         dets_by_frame: dict[int, list] = {}
         for fp in frame_paths:
+            if not fp.stem.isdigit():
+                continue
             frame_id = int(fp.stem)
             res = model.predict(str(fp), classes=[0], conf=conf_thresh,
                                 iou=nms_iou, imgsz=1920, verbose=False)[0]
