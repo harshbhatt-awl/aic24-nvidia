@@ -38,11 +38,37 @@ def _write_camera(det_dir, cam, dets_by_frame, img_rel_for_frame):
         json.dump(ret_json, f, ensure_ascii=False)
 
 
-def run_detection(scene_dir, det_out_dir, cams, conf_thresh, nms_iou, weights="yolo11x.pt"):
-    """Run YOLO11 person detection over Original/<scene>/<cam>/Frame/*.jpg and
-    write per-camera detection files via _write_camera."""
+def _make_model(weights):
+    """Construct and return a YOLO model for the given weights path."""
     from ultralytics import YOLO
-    model = YOLO(weights)
+    return YOLO(weights)
+
+
+def _detect_image(model, img_path, conf_thresh, nms_iou):
+    """Run YOLO person detection on a single image.
+
+    Returns a list of (x1, y1, x2, y2, score) float tuples.
+    """
+    res = model.predict(str(img_path), classes=[0], conf=conf_thresh,
+                        iou=nms_iou, imgsz=1920, verbose=False)[0]
+    rows = []
+    for b in res.boxes:
+        x1, y1, x2, y2 = b.xyxy[0].tolist()
+        rows.append((x1, y1, x2, y2, float(b.conf[0])))
+    return rows
+
+
+def run_detection(scene_dir, det_out_dir, cams, conf_thresh, nms_iou,
+                  weights="yolo11x.pt", detect=None):
+    """Run YOLO11 person detection over Original/<scene>/<cam>/Frame/*.jpg and
+    write per-camera detection files via _write_camera.
+
+    detect: optional callable (model, img_path, conf_thresh, nms_iou) -> list[(x1,y1,x2,y2,score)].
+            Defaults to _detect_image (module-global). Inject a fake for unit tests.
+    """
+    if detect is None:
+        detect = _detect_image
+    model = _make_model(weights)
     scene = Path(scene_dir).name
     for cam in cams:
         frame_dir = Path(scene_dir) / cam / "Frame"
@@ -52,12 +78,7 @@ def run_detection(scene_dir, det_out_dir, cams, conf_thresh, nms_iou, weights="y
             if not fp.stem.isdigit():
                 continue
             frame_id = int(fp.stem)
-            res = model.predict(str(fp), classes=[0], conf=conf_thresh,
-                                iou=nms_iou, imgsz=1920, verbose=False)[0]
-            rows = []
-            for b in res.boxes:
-                x1, y1, x2, y2 = b.xyxy[0].tolist()
-                rows.append((x1, y1, x2, y2, float(b.conf[0])))
+            rows = detect(model, fp, conf_thresh, nms_iou)
             if rows:
                 dets_by_frame[frame_id] = rows
         _write_camera(
