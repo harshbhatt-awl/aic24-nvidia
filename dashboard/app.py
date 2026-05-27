@@ -534,7 +534,7 @@ def _render_metrics(st, run_dir: Path) -> None:
         st.subheader("Per-camera metrics")
         rows = []
         for seq, mvals in metrics.items():
-            if seq == "COMBINED":
+            if seq in ("COMBINED", "mct_world"):
                 continue
             rows.append({
                 "sequence": seq,
@@ -548,6 +548,20 @@ def _render_metrics(st, run_dir: Path) -> None:
             })
         if rows:
             st.dataframe(rows, use_container_width=True, hide_index=True)
+
+        mw = metrics.get("mct_world")
+        if isinstance(mw, dict):
+            st.subheader("Scene MCT — 3D world")
+            if "skipped" in mw:
+                st.warning(f"World MCT eval skipped: {mw['skipped']}")
+            else:
+                cols = st.columns(5)
+                for col, key in zip(cols, ("HOTA", "DetA", "AssA", "IDF1", "MOTA")):
+                    if key in mw:
+                        col.metric(key, f"{mw[key]:.3f}")
+                st.caption(f"d_max = {mw.get('d_max_m')} m · "
+                           f"{mw.get('frames_evaluated')} frames · "
+                           f"{mw.get('dropped_detections', 0)} dets dropped")
 
     if summary_path.exists():
         with st.expander("summary.md (rendered)"):
