@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 
 from ..config import Config
-from .calibration import adapt_calibration
+from .calibration import adapt_calibration, write_per_camera_calibration
 from .gt_converter import convert_gt, reprojection_check
 from .video import materialize_yachiyo_layout, probe_duration
 
@@ -101,6 +101,11 @@ def adapt_scene(cfg: Config, work_dir: Path) -> dict:
     if src_calib.exists():
         adapt_calibration(src_calib, calib_dst, scene_mapping=mapping)
         calib_body = json.loads(src_calib.read_text())
+        # Write per-camera calibration.json so YACHIYO's SCT stage can populate
+        # WorldCoordinate for each detection (required by MCT).
+        original_scene_dir = work_dir / "Original" / scene_name
+        written = write_per_camera_calibration(calib_body, original_scene_dir, cameras)
+        log.info("adapter: wrote %d per-camera calibration files", len(written))
     else:
         log.warning("calibration.json missing; downstream calibration-dependent steps may fail")
 
