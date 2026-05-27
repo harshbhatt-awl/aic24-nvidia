@@ -149,6 +149,9 @@ def _summarize_metrics(metrics: dict) -> str:
         lines.append("## MCT (3D world)")
         if "skipped" in mw:
             lines.append(f"- skipped: {mw['skipped']}")
+            if "gt_range" in mw:
+                lines.append(f"  - gt_range: {mw['gt_range'][0]}..{mw['gt_range'][1]}")
+                lines.append(f"  - pred_range: {mw['pred_range'][0]}..{mw['pred_range'][1]}")
         else:
             for key in ("HOTA", "DetA", "AssA", "IDF1", "MOTA"):
                 if key in mw:
@@ -219,7 +222,7 @@ def _run_trackeval(mot_root: Path, scene: str, log_path: Path) -> dict:
     return results
 
 
-def _eval_mct_world(cfg, run_dir, ctx, mct_global, adapted_root):
+def _eval_mct_world(cfg, ctx, mct_global, adapted_root):
     """Build world predictions from MCT JSON and score against gt_world.txt.
 
     Returns a metrics dict, or {"skipped": reason} when it can't run.
@@ -230,28 +233,30 @@ def _eval_mct_world(cfg, run_dir, ctx, mct_global, adapted_root):
     if not mct_global:
         return {"skipped": "no MCT global tracks"}
 
-    rows, dropped = aggregate_world_tracks(Path(mct_global))
-    if not rows:
-        return {"skipped": "MCT produced no valid world points"}
-    pred_txt = ctx.work_dir / "mct_world_pred.txt"
-    write_world_pred(rows, pred_txt)
+    try:
+        rows, dropped = aggregate_world_tracks(Path(mct_global))
+        if not rows:
+            return {"skipped": "MCT produced no valid world points"}
+        pred_txt = ctx.work_dir / "mct_world_pred.txt"
+        write_world_pred(rows, pred_txt)
 
-    # Frame-alignment guard: GT is 1-indexed; MCT frames share the extracted-frame
-    # base. Require their ranges to overlap, else metrics would be meaningless.
-    gt_frames = set(load_world_txt(gt_world).keys())
-    pred_frames = {r[0] for r in rows}
-    if not (gt_frames & pred_frames):
-        log.warning("world eval: GT frames %s..%s do not overlap pred frames %s..%s",
-                    min(gt_frames), max(gt_frames), min(pred_frames), max(pred_frames))
-        return {"skipped": "GT/pred frame ranges do not overlap",
-                "gt_range": [min(gt_frames), max(gt_frames)],
-                "pred_range": [min(pred_frames), max(pred_frames)]}
+        gt_frames = set(load_world_txt(gt_world).keys())
+        pred_frames = {r[0] for r in rows}
+        if not (gt_frames & pred_frames):
+            log.warning("world eval: GT frames %s..%s do not overlap pred frames %s..%s",
+                        min(gt_frames), max(gt_frames), min(pred_frames), max(pred_frames))
+            return {"skipped": "GT/pred frame ranges do not overlap",
+                    "gt_range": [min(gt_frames), max(gt_frames)],
+                    "pred_range": [min(pred_frames), max(pred_frames)]}
 
-    trackeval_root = Path(__file__).resolve().parents[2] / "external" / "TrackEval"
-    m = run_world_eval(gt_world, pred_txt, cfg.eval.world_d_max, trackeval_root, seq_name=SCENE)
-    m["dropped_detections"] = dropped
-    m["frames_evaluated"] = len(gt_frames & pred_frames)
-    return m
+        trackeval_root = Path(__file__).resolve().parents[2] / "external" / "TrackEval"
+        m = run_world_eval(gt_world, pred_txt, cfg.eval.world_d_max, trackeval_root, seq_name=SCENE)
+        m["dropped_detections"] = dropped
+        m["frames_evaluated"] = len(gt_frames & pred_frames)
+        return m
+    except Exception as exc:
+        log.exception("world MCT eval failed; reporting skipped")
+        return {"skipped": f"exception: {exc}"}
 
 
 def run(cfg: Config, run_dir: Path, run_id: str) -> None:
@@ -304,7 +309,7 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         else:
             log.info("MCT outputs not present (likely stubbed); skipping MCT conversion")
 
-        metrics["mct_world"] = _eval_mct_world(cfg, run_dir, ctx, mct_global, adapted_root)
+        metrics["mct_world"] = _eval_mct_world(cfg, ctx, mct_global, adapted_root)
 
         (ctx.work_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
         (ctx.work_dir / "summary.md").write_text(_summarize_metrics(metrics))
