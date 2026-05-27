@@ -13,6 +13,8 @@ from ..config import Config
 from ..errors import StageError, ValidationError
 from ..manifest import read_manifest
 from ..paths import stage_dir
+from ..world_tracks import aggregate_world_tracks, write_world_pred
+from ..world_metrics import run_world_eval, load_world_txt
 from .base import atomic_stage
 
 log = logging.getLogger(__name__)
@@ -135,10 +137,24 @@ def _build_mot_layout(out_dir: Path, scene: str,
 def _summarize_metrics(metrics: dict) -> str:
     lines = ["# Evaluation summary\n"]
     for seq, m in metrics.items():
+        if seq == "mct_world":
+            continue
         lines.append(f"## {seq}")
         for key in ("HOTA", "IDF1", "MOTA"):
             if key in m:
                 lines.append(f"- {key}: {m[key]:.4f}")
+        lines.append("")
+    mw = metrics.get("mct_world")
+    if isinstance(mw, dict):
+        lines.append("## MCT (3D world)")
+        if "skipped" in mw:
+            lines.append(f"- skipped: {mw['skipped']}")
+        else:
+            for key in ("HOTA", "DetA", "AssA", "IDF1", "MOTA"):
+                if key in mw:
+                    lines.append(f"- {key}: {mw[key]:.4f}")
+            lines.append(f"- d_max_m: {mw.get('d_max_m')}")
+            lines.append(f"- frames_evaluated: {mw.get('frames_evaluated')}")
         lines.append("")
     return "\n".join(lines)
 
@@ -203,6 +219,41 @@ def _run_trackeval(mot_root: Path, scene: str, log_path: Path) -> dict:
     return results
 
 
+def _eval_mct_world(cfg, run_dir, ctx, mct_global, adapted_root):
+    """Build world predictions from MCT JSON and score against gt_world.txt.
+
+    Returns a metrics dict, or {"skipped": reason} when it can't run.
+    """
+    gt_world = adapted_root / f"{SCENE}_gt_world.txt"
+    if not gt_world.exists() or gt_world.stat().st_size == 0:
+        return {"skipped": "no gt_world.txt"}
+    if not mct_global:
+        return {"skipped": "no MCT global tracks"}
+
+    rows, dropped = aggregate_world_tracks(Path(mct_global))
+    if not rows:
+        return {"skipped": "MCT produced no valid world points"}
+    pred_txt = ctx.work_dir / "mct_world_pred.txt"
+    write_world_pred(rows, pred_txt)
+
+    # Frame-alignment guard: GT is 1-indexed; MCT frames share the extracted-frame
+    # base. Require their ranges to overlap, else metrics would be meaningless.
+    gt_frames = set(load_world_txt(gt_world).keys())
+    pred_frames = {r[0] for r in rows}
+    if not (gt_frames & pred_frames):
+        log.warning("world eval: GT frames %s..%s do not overlap pred frames %s..%s",
+                    min(gt_frames), max(gt_frames), min(pred_frames), max(pred_frames))
+        return {"skipped": "GT/pred frame ranges do not overlap",
+                "gt_range": [min(gt_frames), max(gt_frames)],
+                "pred_range": [min(pred_frames), max(pred_frames)]}
+
+    trackeval_root = Path(__file__).resolve().parents[2] / "external" / "TrackEval"
+    m = run_world_eval(gt_world, pred_txt, cfg.eval.world_d_max, trackeval_root, seq_name=SCENE)
+    m["dropped_detections"] = dropped
+    m["frames_evaluated"] = len(gt_frames & pred_frames)
+    return m
+
+
 def run(cfg: Config, run_dir: Path, run_id: str) -> None:
     adapted_root = stage_dir(run_dir, "adapted")
     sct_manifest_path = stage_dir(run_dir, "sct") / "manifest.json"
@@ -253,6 +304,8 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         else:
             log.info("MCT outputs not present (likely stubbed); skipping MCT conversion")
 
+        metrics["mct_world"] = _eval_mct_world(cfg, run_dir, ctx, mct_global, adapted_root)
+
         (ctx.work_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
         (ctx.work_dir / "summary.md").write_text(_summarize_metrics(metrics))
 
@@ -266,5 +319,9 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
             "sct_pred_dir": str(sct_pred_dir),
             "mct_pred_dir": str(mct_pred_dir),
         })
-        ctx.set_params({"trackeval": "MOTChallenge", "scope": "per-camera SCT only in v1"})
+        ctx.set_params({
+            "trackeval": "MOTChallenge + NvidiaMTMCWorld",
+            "scope": "per-camera SCT + scene 3D-world MCT",
+            "world_d_max": cfg.eval.world_d_max,
+        })
         ctx.set_upstream([str(sct_manifest_path), str(mct_manifest_path)])
