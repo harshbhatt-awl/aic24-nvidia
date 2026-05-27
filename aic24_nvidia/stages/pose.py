@@ -43,9 +43,8 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
 
         from ..models import pose_rtmpose
         original = cfg.external_root / "Original"
-        det_scene = stage_dir(run_dir, "detect") / SCENE
         pose_rtmpose.run_pose(
-            det_scene_dir=det_scene,
+            det_scene_dir=det_scene_dir,
             original_scene_dir=original / SCENE,
             pose_out_dir=ctx.work_dir,
             scene=SCENE,
