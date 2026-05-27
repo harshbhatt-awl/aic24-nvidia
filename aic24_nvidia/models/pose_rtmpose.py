@@ -44,11 +44,15 @@ _MODEL = None
 # rtmlib's BaseTool accepts a .zip URL and caches the extracted .onnx.
 # Source: https://github.com/open-mmlab/mmpose/tree/main/projects/rtmpose
 # See also rtmlib Body.MODE['performance'] for the -x variant (384×288).
-# BEST-EFFORT: URL not validated offline; will be confirmed in GPU smoke run.
+# BEST-EFFORT: hash is best-effort, validated at smoke time; if this URL 404s,
+# fall back to _RTMPOSE_M_FALLBACK_URL below.
 _RTMPOSE_L_URL = (
     "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/"
     "rtmpose-l_simcc-body7_pt-body7_420e-256x192-4dba18fc_20230504.zip"
 )
+
+# Verified rtmlib-registered fallback (RTMPose-m body7 256x192) if the -l URL 404s at smoke time:
+_RTMPOSE_M_FALLBACK_URL = "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/rtmpose-m_simcc-body7_pt-body7_420e-256x192-e48f03d0_20230504.zip"
 
 
 def _estimate(img, bboxes):
@@ -56,7 +60,7 @@ def _estimate(img, bboxes):
 
     Args:
         img:    BGR np.ndarray (H, W, 3) — as returned by cv2.imread.
-        bboxes: list of [x1, y1, x2, y2] (floats, xyxy format).
+        bboxes: list of [x1, y1, x2, y2] (ints or floats, xyxy format).
 
     Returns:
         List of N lists, each containing 17 [x, y, score] triplets
@@ -66,16 +70,21 @@ def _estimate(img, bboxes):
         • _MODEL is loaded lazily on first call.
         • BEST-EFFORT: _RTMPOSE_L_URL has not been validated in this session;
           it follows the naming pattern from rtmlib's Body.MODE registry.
-          Confirm during GPU smoke run.
+          Confirm during GPU smoke run. If the -l URL 404s, switch to
+          _RTMPOSE_M_FALLBACK_URL.
+        • bboxes may contain int or float values; they are cast to float32
+          internally via np.array(bboxes, dtype=np.float32).
     """
     global _MODEL
     if _MODEL is None:
+        import torch  # type: ignore
         from rtmlib import RTMPose  # type: ignore
+        _device = "cuda" if torch.cuda.is_available() else "cpu"
         _MODEL = RTMPose(
             onnx_model=_RTMPOSE_L_URL,
             model_input_size=(192, 256),  # (W, H) = 192×256
             backend="onnxruntime",
-            device="cuda",
+            device=_device,
         )
 
     # RTMPose.__call__ expects bboxes as a list of [x1,y1,x2,y2] and returns:
@@ -154,9 +163,8 @@ def run_pose(
             img = cv2.imread(str(img_path))
 
             bboxes_int = list(by_frame[frame_id])  # list of (x1,y1,x2,y2) ints
-            bboxes_float = [[float(v) for v in b] for b in bboxes_int]
 
-            kpts = estimate(img, bboxes_float)
+            kpts = estimate(img, bboxes_int)
 
             people = []
             for (x1, y1, x2, y2), kp in zip(bboxes_int, kpts):
