@@ -336,3 +336,36 @@ def test_rewrite_processes_both_fixed_and_unfixed(tmp_path):
         body = json.loads((sct_scene / fname).read_text())
         assert body["00000001"]["WorldCoordinate"]["x"] == pytest.approx(105.0)
         assert body["00000001"]["WorldCoordinate"]["y"] == pytest.approx(805.0)
+
+
+def test_rewrite_missing_calibration_logs_warning(tmp_path, caplog):
+    """Missing per-camera calibration logs a warning instead of failing silently."""
+    import logging
+    from aic24_nvidia.world_projection import rewrite_world_coordinates
+
+    sct_scene = tmp_path / "mct.tmp" / "scene_001"
+    pose_scene = tmp_path / "Pose" / "scene_001"
+    orig_scene = tmp_path / "adapted" / "Original" / "scene_001"
+
+    sct_scene.mkdir(parents=True)
+    _write_pose_json(
+        pose_scene / "camera_0390" / "camera_0390_out_keypoint.json",
+        {"5": [{"bbox": [0, 0, 1, 1, 1.0], "keypoints": [[0.0, 0.0, 0.0]] * 17}]},
+    )
+    # Do NOT write calibration.json — that's the missing piece.
+
+    with caplog.at_level(logging.WARNING, logger="aic24_nvidia.world_projection"):
+        rewritten = rewrite_world_coordinates(
+            sct_scene_dir=sct_scene,
+            pose_scene_dir=pose_scene,
+            calib_root=orig_scene,
+            camera_map={390: "camera_0390"},
+            method="ankle_avg",
+            ankle_min_conf=0.3,
+        )
+
+    assert rewritten == 0
+    assert any(
+        "camera_0390" in rec.message and "calibration" in rec.message
+        for rec in caplog.records
+    ), f"expected warning about missing calibration; got: {[r.message for r in caplog.records]}"

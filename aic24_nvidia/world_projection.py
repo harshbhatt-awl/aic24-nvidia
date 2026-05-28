@@ -17,8 +17,10 @@ change SCT decisions — only MCT clustering and the final eval see the override
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
-from typing import Iterable
+
+log = logging.getLogger(__name__)
 
 
 # COCO-17 ordering used by RTMPose (see aic24_nvidia/models/pose_rtmpose.py:23).
@@ -196,7 +198,17 @@ def rewrite_world_coordinates(
         pose_json = pose_scene_dir / nvidia_name / f"{nvidia_name}_out_keypoint.json"
         calib_json = calib_root / nvidia_name / "calibration.json"
         if not pose_json.exists() or not calib_json.exists():
-            # Missing pose or calibration -> skip this camera (no rewrite).
+            missing = []
+            if not pose_json.exists():
+                missing.append(f"pose={pose_json}")
+            if not calib_json.exists():
+                missing.append(f"calibration={calib_json}")
+            log.warning(
+                "world_projection: skipping camera %s (method=%s) — missing: %s. "
+                "This camera keeps SCT-derived (bbox-bottom) world coords while other cameras "
+                "may get ankle-projected coords; results may be inconsistent across cameras.",
+                nvidia_name, method, ", ".join(missing),
+            )
             continue
 
         pose_lookup = _build_pose_lookup(pose_json)
