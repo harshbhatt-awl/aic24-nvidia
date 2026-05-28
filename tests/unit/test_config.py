@@ -139,3 +139,11 @@ def test_world_projection_invalid_method(tmp_path):
     body["world_projection"] = {"method": "bogus"}
     with pytest.raises(ConfigError, match="world_projection.method"):
         load_config(_write(tmp_path, body))
+
+
+def test_world_projection_ankle_min_conf_range(tmp_path):
+    """ankle_min_conf outside [0, 1] is rejected at load time."""
+    body = _minimal(tmp_path)
+    body["world_projection"] = {"method": "ankle_w_fallback", "ankle_min_conf": 1.5}
+    with pytest.raises(ConfigError, match="ankle_min_conf"):
+        load_config(_write(tmp_path, body))

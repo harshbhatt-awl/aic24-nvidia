@@ -134,10 +134,10 @@ def load_config(path: Path) -> Config:
     wp_method = wp_body.get("method", "bbox_bottom")
     if wp_method not in {"bbox_bottom", "ankle_avg", "ankle_lower", "ankle_w_fallback"}:
         raise ConfigError(f"world_projection.method must be one of bbox_bottom|ankle_avg|ankle_lower|ankle_w_fallback, got {wp_method!r}")
-    world_projection = WorldProjectionCfg(
-        method=wp_method,
-        ankle_min_conf=float(wp_body.get("ankle_min_conf", 0.3)),
-    )
+    wp_min_conf = float(wp_body.get("ankle_min_conf", 0.3))
+    if not (0.0 <= wp_min_conf <= 1.0):
+        raise ConfigError(f"world_projection.ankle_min_conf must be in [0, 1], got {wp_min_conf}")
+    world_projection = WorldProjectionCfg(method=wp_method, ankle_min_conf=wp_min_conf)
     tracking_params = MappingProxyType(dict(body.get("tracking_params") or {}))
 
     return Config(
