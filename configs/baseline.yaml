@@ -79,5 +79,13 @@ tracking_params:                # real YACHIYO keys
   sim_th: 0.85
   delete_gid_th: 5000
 
+world_projection:
+  method: bbox_bottom        # bbox_bottom | ankle_avg | ankle_lower | ankle_w_fallback
+  ankle_min_conf: 0.3
+
+world_smoothing:
+  method: none               # none | ema
+  ema_alpha: 0.3
+
 vram_min_free_gb: 4.0
 fps: 30
