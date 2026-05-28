@@ -26,6 +26,20 @@ COCO_LEFT_ANKLE = 15
 COCO_RIGHT_ANKLE = 16
 
 
+def _project_to_world(x_img: float, y_img: float, homography_matrix) -> tuple[float, float]:
+    """Project an image-plane point (pixels) to world coordinates (metres).
+
+    Matches the formula used in external/.../tracking/src/utils.py:170 —
+    world->image homography H means image->world is inv(H) applied to
+    [x, y, 1], with the result divided by its third component.
+    """
+    import numpy as np  # local import keeps the module import-time cheap
+
+    H_inv = np.linalg.inv(np.asarray(homography_matrix, dtype=np.float64))
+    v = H_inv @ np.array([x_img, y_img, 1.0])
+    return float(v[0] / v[2]), float(v[1] / v[2])
+
+
 def _build_pose_lookup(pose_json: Path) -> dict[tuple[int, tuple[int, int, int, int]], list[list[float]]]:
     """Index a per-camera pose JSON by (frame_int, bbox_ints) -> keypoints (17 x [x,y,score])."""
     body = json.loads(Path(pose_json).read_text())
