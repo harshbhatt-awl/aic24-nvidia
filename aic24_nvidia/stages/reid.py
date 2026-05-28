@@ -1,11 +1,10 @@
 from __future__ import annotations
 import logging
-import subprocess
 from pathlib import Path
 
 from ..bootstrap import ensure_dir_clean, make_symlink
 from ..config import Config
-from ..errors import StageError, ValidationError
+from ..errors import ValidationError
 from ..paths import stage_dir
 from .base import atomic_stage, assert_vram_free
 
@@ -28,35 +27,23 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
     assert_vram_free(cfg.vram_min_free_gb)
 
     detect_manifest = stage_dir(run_dir, "detect") / "manifest.json"
-    drid = cfg.external_root / "deep-person-reid"
-    if not drid.exists():
-        raise FileNotFoundError(f"deep-person-reid not found at {drid} — run bootstrap")
-    injected = drid / "torchreid" / "aic24_extract.py"
-    if not injected.exists():
-        raise FileNotFoundError(f"injected file missing: {injected} — re-run bootstrap")
 
     with atomic_stage(run_dir, "reid", run_id=run_id) as ctx:
-        log_path = ctx.work_dir / "log.txt"
-
         emb_root = cfg.external_root / "EmbedFeature"
         ensure_dir_clean(emb_root)
         make_symlink(ctx.work_dir, emb_root)
 
-        # torchreid's setup.py is broken on Python 3.10+; we use PYTHONPATH
-        # so `import torchreid` resolves to external/deep-person-reid/torchreid/
-        # without needing pip install.
-        import os
-        env = os.environ.copy()
-        env["PYTHONPATH"] = f"{drid}{os.pathsep}{env.get('PYTHONPATH', '')}"
-
-        with open(log_path, "w") as lf:
-            proc = subprocess.run(
-                ["python3", "torchreid/aic24_extract.py", "-s", SCENE, "../"],
-                cwd=drid, env=env,
-                stdout=lf, stderr=subprocess.STDOUT,
-            )
-        if proc.returncode != 0:
-            raise StageError("reid", proc.returncode, str(log_path))
+        from ..models import reid_solider
+        original = cfg.external_root / "Original"
+        det_scene = stage_dir(run_dir, "detect") / SCENE
+        cams = sorted(p.stem for p in det_scene.glob("camera_*.txt"))
+        reid_solider.run_reid(
+            det_scene_dir=det_scene,
+            original_scene_dir=original / SCENE,
+            emb_out_dir=ctx.work_dir,
+            scene=SCENE,
+            cams=cams,
+        )
 
         counts = _per_cam_feature_counts(ctx.work_dir)
         if not counts:
@@ -69,8 +56,8 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         ctx.set_inputs({"detect_manifest": str(detect_manifest)})
         ctx.set_outputs({"per_cam_feature_counts": counts})
         ctx.set_params({
+            "model": "solider_swin_small",
             "similarity_thresh": cfg.reid.similarity_thresh,
-            "note": "hyperparam recorded but not propagated to upstream",
         })
         ctx.set_upstream([str(detect_manifest)])
 

@@ -76,6 +76,17 @@ def atomic_stage(run_dir: Path, stage: str, run_id: str):
         shutil.rmtree(final)
     tmp.rename(final)
 
+    # Rewrite the manifest so all references to the tmp path become the final path.
+    # The manifest was written before rename, so its paths still contain the .tmp
+    # directory name. Replace every occurrence of the absolute tmp path string with
+    # the absolute final path string so downstream consumers never see stale .tmp refs.
+    manifest_path = final / "manifest.json"
+    raw = manifest_path.read_text()
+    raw = raw.replace(str(tmp.resolve()), str(final.resolve()))
+    # Also cover the non-resolved form in case they differ (e.g. symlinks).
+    raw = raw.replace(str(tmp), str(final))
+    manifest_path.write_text(raw)
+
 
 @contextmanager
 def vram_guard_disabled():

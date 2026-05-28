@@ -22,32 +22,27 @@ outputs into our run dir via **symlinks** (upstream honours no env-var path over
 to `external/{Original,Detection,EmbedFeature,Pose,Tracking}/`, which are symlinked to
 `outputs/<run_id>/<stage>/` right before each stage runs.
 
-## ⚠️ Dual-venv setup (the non-obvious part)
+## Models (the learned components)
 
-- **`.venv`** (Python 3.14, torch 2.12+cu130) — runs everything **except** pose.
-- **`.venv-pose`** (Python 3.10, torch 1.13.1+cu117, mmcv-full 1.7.0, mmpose 0.29.0, mmdet 2.28.2)
-  — runs **only** the pose stage. mmpose 0.x will not install on Python 3.14.
+All three model stages run **in-process in the single `.venv`** (Python 3.14, torch 2.12+cu130) via
+adapters under `aic24_nvidia/models/` that write byte-compatible output for the untouched SCT/MCT:
 
-`stages/pose.py` auto-invokes `.venv-pose/bin/python`. Everything else uses `.venv`.
+- **detect** → **YOLO11-x** (`ultralytics`, `aic24_nvidia/models/detect_yolo.py`); person class, GPU.
+- **reid** → **SOLIDER Swin-Small** (timm-based, vendored in `aic24_nvidia/models/solider/`,
+  `reid_solider.py`); weights at `weights/solider_swin_small.pth`; 768-d embeddings, GPU.
+- **pose** → **RTMPose-l** via `rtmlib` (ONNX, `pose_rtmpose.py`); 17 COCO keypoints. ONNXRuntime has
+  no CUDA provider on the cu130 stack, so pose runs on **CPU** (~11 min for the 30s clip — fine).
 
-Created with `uv`:
-```bash
-uv python install 3.10
-uv venv --python 3.10 .venv-pose
-.venv-pose/bin/python -m ensurepip --upgrade
-.venv-pose/bin/python -m pip install torch==1.13.1+cu117 torchvision==0.14.1+cu117 --extra-index-url https://download.pytorch.org/whl/cu117
-.venv-pose/bin/python -m pip install openmim 'numpy<2'
-.venv-pose/bin/python -m mim install mmcv-full==1.7.0
-.venv-pose/bin/python -m pip install --no-deps mmpose==0.29.0
-.venv-pose/bin/python -m mim install mmdet==2.28.2
-.venv-pose/bin/python -m pip install 'numpy<2'   # mim keeps pulling numpy 2.x back
-```
+> Historical: pose used to need a separate `.venv-pose` (mmpose 0.29 / Python 3.10) — **removed**; rtmlib
+> is pure ONNX so pose runs in the main `.venv`. detect dropped BoT-SORT/YOLOX; reid dropped
+> deep-person-reid/OSNet. Each adapter releases GPU memory (`del`+`empty_cache`) after its stage since
+> stages now run in one process rather than per-stage subprocesses.
 
 ## Running
 
 ```bash
 source .venv/bin/activate
-python pipeline.py bootstrap                       # clone BoT-SORT, deep-person-reid, mmpose siblings + copy injected files
+python pipeline.py bootstrap                       # clone YACHIYO + TrackEval siblings (detect/reid/pose models are pip/vendored, no sibling needed)
 python pipeline.py all   --config configs/warehouse_001_30s.yaml
 python pipeline.py <stage> --config ... [--run-id <id>] [--force]
 python pipeline.py viz   --config ... --stage {detect,sct,mct}
@@ -72,9 +67,9 @@ Upstream stages (before `rerun_from`) are inherited from `outputs/baseline/` via
 e.g. an `epsilon_mcpt` sweep takes seconds per variant (only SCT/MCT/evaluate re-run).
 See `experiments/README.md` for full details and the worktree-vs-harness decision rule.
 
-`detect` needs `external/BoT-SORT/bytetrack_x_mot17.pth.tar` (YOLOX-x, ~793 MB, from the ByteTrack
-Google Drive: `gdown 1P4mY0Yyd3PPTybgZkjMYhFri88nTmJX5 -O external/BoT-SORT/bytetrack_x_mot17.pth.tar`).
-OSNet (ReID) and HRNet (pose) checkpoints auto-download on first run.
+`detect` (YOLO11-x, `yolo11x.pt`) and `pose` (RTMPose-l ONNX) checkpoints auto-download on first run.
+`reid` needs the SOLIDER Swin-Small weights at `weights/solider_swin_small.pth` (from the
+`tinyvision/SOLIDER-REID` release).
 
 Data lives at `data/nvidia_mtmc_2024/` (symlinked to `../aic23-nvidia/data/nvidia_mtmc_2024`). The real
 scene is `MTMC_Tracking_2024/val/scene_044/`; `Warehouse_001/` is a flattened symlink view with
@@ -82,8 +77,9 @@ scene is `MTMC_Tracking_2024/val/scene_044/`; `Warehouse_001/` is a flattened sy
 
 ## Hardware
 
-Verified on a 6 GB RTX 3050. Models are loaded sequentially per stage so peak VRAM stays ~3-4 GB.
-Full 30s run ≈ 1 hour: detect ~26 min, reid ~8 min, pose ~15 min, the rest seconds.
+Verified on a 6 GB RTX 3050. Each adapter loads its model then frees GPU memory before the next stage,
+so peak VRAM stays ~3-4 GB. Full 30s run ≈ 45 min: detect ~31 min (GPU), reid ~10 min (GPU),
+pose ~11 min (CPU — no ONNX CUDA provider), the rest seconds.
 
 ## Gotchas / known issues
 
@@ -115,8 +111,7 @@ Full 30s run ≈ 1 hour: detect ~26 min, reid ~8 min, pose ~15 min, the rest sec
 These live under `external/` (gitignored) and in our package. They fix import/runtime errors and
 short-clip crashes — none change algorithm behaviour:
 
-1. `external/BoT-SORT/fast_reid/.../testing.py` & `data/build.py`: `from collections import Mapping`
-   → `collections.abc`; `from torch._six import string_classes` → `string_classes = (str, bytes)`.
+1. ~~BoT-SORT fast_reid patches~~ — **obsolete** (detect uses YOLO11-x; BoT-SORT no longer used).
 2. `external/AIC24_Track1_YACHIYO_RIIPS/tracking/infer.py`: add
    `multiprocessing.set_start_method("fork", force=True)` — Python 3.14 defaults to spawn, which breaks
    the global-inheritance pattern in `single_tracking`.
@@ -125,14 +120,15 @@ short-clip crashes — none change algorithm behaviour:
    `unique_local_ids` (avoids `min([])`).
 4. `external/TrackEval/`: cloned separately (pip package lacks runner scripts); patched `np.float/int/bool`
    → built-ins.
-5. Our `stages/reid.py`: PYTHONPATH override (deep-person-reid `setup.py` is broken).
+5. ~~reid PYTHONPATH override~~ — **obsolete** (reid uses SOLIDER; deep-person-reid no longer used).
 6. Our adapter: consumes real NVIDIA schema `{cameras:{cam:{K,R,t}}, annotations:[{camera,frame,
-   person_id,world_xy,bbox_2d}]}`, preserves real camera names, computes per-camera homography +
-   projection matrices.
+   person_id,world_xy,bbox_2d}]}`, preserves real camera names, and writes per-camera
+   `Original/scene_NNN/camera_NNNN/calibration.json` (3×4 projection + 3×3 homography) that SCT reads
+   to populate `WorldCoordinate` (required by MCT).
 
-If `python pipeline.py bootstrap` re-clones the sibling repos, patches 1-4 must be re-applied.
+If `python pipeline.py bootstrap` re-clones the sibling repos, patches 2-4 must be re-applied.
 
 ## Tests
 
-`pytest tests/unit/` (39 tests, no GPU). Integration test `tests/integration/test_tiny_scene.py` runs the
+`pytest tests/unit/` (~64 tests, no GPU). Integration test `tests/integration/test_tiny_scene.py` runs the
 adapter on a synthetic 2-camera fixture; the full-pipeline path is skipped (needs GPU + siblings).
