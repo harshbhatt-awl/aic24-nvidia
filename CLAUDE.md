@@ -54,6 +54,24 @@ python pipeline.py viz   --config ... --stage {detect,sct,mct}
 python pipeline.py dashboard --port 8501           # Streamlit (read-only viewer)
 ```
 
+### Experiment harness (`experiments/`)
+
+A/B variants against a locked baseline without re-running slow stages:
+
+```bash
+python experiments/run.py ensure-baseline                       # build outputs/baseline/ once (~1h)
+python experiments/run.py list                                  # show defined experiments
+python experiments/run.py run eps_mcpt_sweep                    # run all variants of one experiment
+python experiments/run.py run eps_mcpt_sweep --variant 0.30     # single variant
+python experiments/compare.py [--sort-by mct_world.HOTA]        # results table vs baseline
+```
+
+`configs/baseline.yaml` is the locked reference (v2 model stack + sweep-tuned tracker).
+`experiments/registry.yaml` defines experiments; each variant is `base_config + overrides`.
+Upstream stages (before `rerun_from`) are inherited from `outputs/baseline/` via symlinks, so
+e.g. an `epsilon_mcpt` sweep takes seconds per variant (only SCT/MCT/evaluate re-run).
+See `experiments/README.md` for full details and the worktree-vs-harness decision rule.
+
 `detect` needs `external/BoT-SORT/bytetrack_x_mot17.pth.tar` (YOLOX-x, ~793 MB, from the ByteTrack
 Google Drive: `gdown 1P4mY0Yyd3PPTybgZkjMYhFri88nTmJX5 -O external/BoT-SORT/bytetrack_x_mot17.pth.tar`).
 OSNet (ReID) and HRNet (pose) checkpoints auto-download on first run.

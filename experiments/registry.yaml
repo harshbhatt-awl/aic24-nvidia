@@ -1,0 +1,132 @@
+# Experiment registry.
+#
+# Each experiment is a set of variants that share a hypothesis. A variant is
+# baseline + a small overrides patch. The harness:
+#   1. Deep-merges `overrides` into `base_config` to make a per-variant YAML.
+#   2. Symlinks the cached upstream stages (from `outputs/baseline/`) into
+#      `outputs/<exp_id>__<variant_name>/` so the run reuses heavy work.
+#   3. Invokes `pipeline.py` for the variant; gated stages skip automatically.
+#   4. Metrics land at `outputs/<exp_id>__<variant_name>/evaluate/metrics.json`.
+#
+# Stages, in order:
+#     adapt → frames → detect → reid → pose → sct → mct → evaluate
+#
+# `rerun_from` says "reuse everything before this stage, re-run from this stage
+# onward." Pick the EARLIEST stage whose behavior changes when you flip the knob:
+#
+#   override changes               -> rerun_from
+#   --------------------------------|-----------
+#   tracking_params.*               -> sct
+#   mct.*                           -> mct        (only when sct path unchanged)
+#   eval.world_d_max                -> evaluate
+#   reid.similarity_thresh          -> sct        (consumes embeddings)
+#   pose.keypoint_conf              -> sct
+#   detect.conf_thresh / nms_iou    -> detect
+#   clip.* / scene / fps            -> adapt      (full rerun)
+#
+# When in doubt, pick the EARLIER stage — gating is cheap, wrong-skip is silent.
+
+experiments:
+
+  - id: eps_mcpt_sweep
+    description: "Sweep the cross-camera merge threshold around the baseline."
+    hypothesis: "Tighter epsilon_mcpt reduces cross-camera false merges; looser is more permissive."
+    base_config: configs/baseline.yaml
+    rerun_from: sct
+    variants:
+      - name: "0.25"
+        overrides:
+          tracking_params:
+            epsilon_mcpt: 0.25
+      - name: "0.31"
+        overrides:
+          tracking_params:
+            epsilon_mcpt: 0.31
+      - name: "0.37"   # = baseline (sweep-fixed value)
+        overrides:
+          tracking_params:
+            epsilon_mcpt: 0.37
+      - name: "0.45"
+        overrides:
+          tracking_params:
+            epsilon_mcpt: 0.45
+      - name: "0.55"
+        overrides:
+          tracking_params:
+            epsilon_mcpt: 0.55
+
+  - id: eps_scpt_sweep
+    description: "Sweep the per-camera SCPT clustering threshold around the baseline."
+    hypothesis: "Confirm the 2026-05-27 sweep result (best at 0.30) reproduces with the locked baseline."
+    base_config: configs/baseline.yaml
+    rerun_from: sct
+    variants:
+      - name: "0.20"
+        overrides:
+          tracking_params:
+            epsilon_scpt: 0.20
+      - name: "0.30"   # = baseline
+        overrides:
+          tracking_params:
+            epsilon_scpt: 0.30
+      - name: "0.40"
+        overrides:
+          tracking_params:
+            epsilon_scpt: 0.40
+      - name: "0.50"
+        overrides:
+          tracking_params:
+            epsilon_scpt: 0.50
+
+  - id: hard_world_gate
+    description: "A/B the hard world-distance cannot-link flag."
+    hypothesis: "hard_world_gate=true prevents far-apart tracks from merging."
+    base_config: configs/baseline.yaml
+    rerun_from: mct
+    variants:
+      - name: "off"
+        overrides:
+          mct:
+            hard_world_gate: false
+      - name: "on"     # = baseline
+        overrides:
+          mct:
+            hard_world_gate: true
+
+  - id: sim_th_sweep
+    description: "ReID similarity threshold used in MCPT merges."
+    hypothesis: "Higher sim_th makes merges more conservative; lower is more permissive."
+    base_config: configs/baseline.yaml
+    rerun_from: sct
+    variants:
+      - name: "0.75"
+        overrides:
+          tracking_params:
+            sim_th: 0.75
+      - name: "0.85"   # = baseline
+        overrides:
+          tracking_params:
+            sim_th: 0.85
+      - name: "0.92"
+        overrides:
+          tracking_params:
+            sim_th: 0.92
+
+  - id: world_d_max
+    description: "World-distance gate used in evaluate-time HOTA matching."
+    hypothesis: "Looser gate inflates world HOTA; useful to report the precision/recall curve."
+    base_config: configs/baseline.yaml
+    rerun_from: evaluate
+    variants:
+      - name: "0.5m"
+        overrides:
+          eval:
+            world_d_max: 0.5
+      - name: "1.0m"   # = baseline
+        overrides:
+          eval:
+            world_d_max: 1.0
+      - name: "2.0m"
+        overrides:
+          eval:
+            world_d_max: 2.0
