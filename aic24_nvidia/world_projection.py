@@ -58,3 +58,55 @@ def _build_pose_lookup(pose_json: Path) -> dict[tuple[int, tuple[int, int, int, 
             x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
             out[(frame, (x1, y1, x2, y2))] = kps
     return out
+
+
+def _bbox_bottom_point(bbox: tuple[int, int, int, int]) -> tuple[float, float]:
+    x1, _y1, x2, y2 = bbox
+    return (float(x1) + float(x2)) / 2.0, float(y2)
+
+
+def _compute_image_point(
+    bbox: tuple[int, int, int, int],
+    kps: list[list[float]] | None,
+    method: str,
+    ankle_min_conf: float,
+) -> tuple[float, float]:
+    """Pick the (x_img, y_img) pixel point to project to world coords.
+
+    Falls back to bbox_bottom whenever the chosen method cannot be applied
+    (no pose, both ankle scores zero, or low-confidence in ankle_w_fallback).
+    """
+    if method == "bbox_bottom" or kps is None:
+        return _bbox_bottom_point(bbox)
+
+    lx, ly, ls = kps[COCO_LEFT_ANKLE]
+    rx, ry, rs = kps[COCO_RIGHT_ANKLE]
+
+    if method == "ankle_avg":
+        total = ls + rs
+        if total <= 0.0:
+            return _bbox_bottom_point(bbox)
+        return (ls * lx + rs * rx) / total, (ls * ly + rs * ry) / total
+
+    if method == "ankle_lower":
+        if ls <= 0.0 and rs <= 0.0:
+            return _bbox_bottom_point(bbox)
+        # Pick the ankle with larger pixel y. Skip ankles with score 0.
+        candidates = []
+        if ls > 0.0:
+            candidates.append((ly, lx, ly))
+        if rs > 0.0:
+            candidates.append((ry, rx, ry))
+        # Sort by y descending, then take the first.
+        candidates.sort(key=lambda t: -t[0])
+        _y_key, cx, cy = candidates[0]
+        return float(cx), float(cy)
+
+    if method == "ankle_w_fallback":
+        if ls >= ankle_min_conf and rs >= ankle_min_conf:
+            total = ls + rs
+            return (ls * lx + rs * rx) / total, (ls * ly + rs * ry) / total
+        return _bbox_bottom_point(bbox)
+
+    # Unknown method (defensive — config validation prevents this).
+    return _bbox_bottom_point(bbox)
