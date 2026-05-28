@@ -217,3 +217,25 @@ experiments:
           world_smoothing:
             method: ema
             ema_alpha: 0.5
+      # Fine-grained probe around the optimum (ema_0.3 leads at +0.047).
+      - name: "ema_0.25"
+        overrides:
+          world_projection:
+            method: ankle_lower
+          world_smoothing:
+            method: ema
+            ema_alpha: 0.25
+      - name: "ema_0.35"
+        overrides:
+          world_projection:
+            method: ankle_lower
+          world_smoothing:
+            method: ema
+            ema_alpha: 0.35
+      - name: "ema_0.4"
+        overrides:
+          world_projection:
+            method: ankle_lower
+          world_smoothing:
+            method: ema
+            ema_alpha: 0.4
