@@ -18,6 +18,8 @@
 #   --------------------------------|-----------
 #   tracking_params.*               -> sct
 #   mct.*                           -> mct        (only when sct path unchanged)
+#   world_projection.*              -> mct
+#   world_smoothing.*               -> evaluate
 #   eval.world_d_max                -> evaluate
 #   reid.similarity_thresh          -> sct        (consumes embeddings)
 #   pose.keypoint_conf              -> sct
@@ -130,3 +132,53 @@ experiments:
         overrides:
           eval:
             world_d_max: 2.0
+
+  - id: ankle_footpoint_sweep
+    description: "Use RTMPose ankle keypoints instead of bbox-bottom-center for world projection."
+    hypothesis: "Ankle footpoints reduce 2D->world projection error, raising 3D-world HOTA."
+    base_config: configs/baseline.yaml
+    rerun_from: mct
+    variants:
+      - name: "bbox_bottom"          # = baseline (control)
+        overrides:
+          world_projection:
+            method: bbox_bottom
+      - name: "ankle_avg"
+        overrides:
+          world_projection:
+            method: ankle_avg
+      - name: "ankle_lower"
+        overrides:
+          world_projection:
+            method: ankle_lower
+      - name: "ankle_w_fallback"
+        overrides:
+          world_projection:
+            method: ankle_w_fallback
+            ankle_min_conf: 0.3      # explicit; matches the baseline default
+
+  - id: world_smoother_sweep
+    description: "EMA temporal smoothing on per-(frame, gid) world coords (eval-only)."
+    hypothesis: "Smoothing removes per-frame projection noise, raising world HOTA / IDF1."
+    base_config: configs/baseline.yaml
+    rerun_from: evaluate
+    variants:
+      - name: "none"                 # = baseline (control)
+        overrides:
+          world_smoothing:
+            method: none
+      - name: "ema_0.3"
+        overrides:
+          world_smoothing:
+            method: ema
+            ema_alpha: 0.3
+      - name: "ema_0.5"
+        overrides:
+          world_smoothing:
+            method: ema
+            ema_alpha: 0.5
+      - name: "ema_0.7"
+        overrides:
+          world_smoothing:
+            method: ema
+            ema_alpha: 0.7
