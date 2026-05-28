@@ -47,8 +47,6 @@ experiments/
 
 configs/
     baseline.yaml      ← locked reference config (compare every experiment to this)
-    warehouse_001_30s.yaml         (legacy untuned)
-    warehouse_001_30s_tuned.yaml   (legacy tuned)
 
 outputs/
     baseline/                     ← the locked baseline run (DO NOT DELETE)

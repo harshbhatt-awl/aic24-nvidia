@@ -43,7 +43,7 @@ adapters under `aic24_nvidia/models/` that write byte-compatible output for the 
 ```bash
 source .venv/bin/activate
 python pipeline.py bootstrap                       # clone YACHIYO + TrackEval siblings (detect/reid/pose models are pip/vendored, no sibling needed)
-python pipeline.py all   --config configs/warehouse_001_30s.yaml
+python pipeline.py all   --config configs/baseline.yaml
 python pipeline.py <stage> --config ... [--run-id <id>] [--force]
 python pipeline.py viz   --config ... --stage {detect,sct,mct}
 python pipeline.py dashboard --port 8501           # Streamlit (read-only viewer)

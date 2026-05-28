@@ -20,7 +20,7 @@ cd ..
 
 # place an NVIDIA Warehouse scene under data/nvidia_mtmc_2024/Warehouse_XXX/
 # then:
-python pipeline.py all --config configs/warehouse_001_30s.yaml
+python pipeline.py all --config configs/baseline.yaml
 python pipeline.py dashboard --port 8501
 ```
 
@@ -32,7 +32,7 @@ After cloning a real NVIDIA Warehouse scene into `data/nvidia_mtmc_2024/Warehous
 # 1. Adapt only — 5 seconds, no GPU needed
 python -c "
 import yaml, pathlib
-cfg = yaml.safe_load(open('configs/warehouse_001_30s.yaml'))
+cfg = yaml.safe_load(open('configs/baseline.yaml'))
 cfg['clip']['duration_sec'] = 5
 pathlib.Path('configs/smoke.yaml').write_text(yaml.safe_dump(cfg))
 "

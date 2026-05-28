@@ -1,38 +1,36 @@
 #!/usr/bin/env bash
-# Bootstrap external sibling repos required by AIC24_Track1_YACHIYO_RIIPS.
-# Idempotent: skips clones already present.
+# Bootstrap the sibling repos under external/ that the v2 pipeline still needs.
+#
+# What v2 NEEDS:
+#   * external/AIC24_Track1_YACHIYO_RIIPS  → SCT/MCT (untouched upstream tracker)
+#   * external/TrackEval                   → HOTA/IDF1/MOTA scoring (pip package
+#                                            lacks the runner scripts we use)
+#
+# What v2 NO LONGER NEEDS (removed from this script):
+#   * BoT-SORT          — replaced by aic24_nvidia/models/detect_yolo.py (YOLO11)
+#   * deep-person-reid  — replaced by aic24_nvidia/models/reid_solider.py (SOLIDER)
+#   * mmpose / .venv-pose — replaced by aic24_nvidia/models/pose_rtmpose.py (rtmlib)
+#
+# Idempotent: each clone is skipped if already present.
+
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 EXTERNAL="$(pwd)/external"
 mkdir -p "$EXTERNAL"
 
-# Upstream already cloned by Task 11; double-check.
+# Upstream tracker — still required for SCT/MCT.
 test -d "$EXTERNAL/AIC24_Track1_YACHIYO_RIIPS" \
     || git clone https://github.com/riips/AIC24_Track1_YACHIYO_RIIPS.git \
        "$EXTERNAL/AIC24_Track1_YACHIYO_RIIPS"
 
-# BoT-SORT (detection runtime)
-test -d "$EXTERNAL/BoT-SORT" \
-    || git clone https://github.com/NirAharon/BoT-SORT.git "$EXTERNAL/BoT-SORT"
-
-# deep-person-reid (embedding runtime)
-test -d "$EXTERNAL/deep-person-reid" \
-    || git clone https://github.com/KaiyangZhou/deep-person-reid.git \
-       "$EXTERNAL/deep-person-reid"
-
-# mmpose 0.x (pose runtime — pinned to last 0.x release)
-test -d "$EXTERNAL/mmpose" \
-    || ( git clone https://github.com/open-mmlab/mmpose.git "$EXTERNAL/mmpose" \
-         && git -C "$EXTERNAL/mmpose" checkout v0.29.0 )
-
-# Copy the upstream's custom Python files into the sibling repos.
-UPSTREAM="$EXTERNAL/AIC24_Track1_YACHIYO_RIIPS"
-cp "$UPSTREAM/detector/aic24_get_detection.py" "$EXTERNAL/BoT-SORT/tools/"
-cp "$UPSTREAM/embedder/aic24_extract.py"        "$EXTERNAL/deep-person-reid/torchreid/"
-cp "$UPSTREAM/poser/load_tracking_result.py"     "$EXTERNAL/mmpose/demo/"
-cp "$UPSTREAM/poser/top_down_video_demo_with_track_file.py" "$EXTERNAL/mmpose/demo/"
+# TrackEval — required by the evaluate stage. We use it via the cloned source
+# (the pip package lacks the runner scripts we depend on). Patched
+# np.float/int/bool → built-ins after clone (see CLAUDE.md "Upstream patches").
+test -d "$EXTERNAL/TrackEval" \
+    || git clone https://github.com/JonathonLuiten/TrackEval.git "$EXTERNAL/TrackEval"
 
 echo "Bootstrap done."
-echo "Next: install the three sibling repos' Python deps (see their READMEs)."
-echo "Then place YOLOX checkpoint at $EXTERNAL/BoT-SORT/bytetrack_x_mot17.pth.tar"
+echo "Detect/reid/pose models are pip-installed / vendored — no sibling clones needed."
+echo "If the upstream patches in CLAUDE.md ('Upstream patches applied') are not in"
+echo "place, re-apply them (only YACHIYO and TrackEval items 2-4 remain relevant)."

@@ -165,7 +165,7 @@ _COMPARISON_ROWS = [
      "TrackEval HOTA / IDF1 / MOTA per-camera, against converted NVIDIA GT"),
     ("Hyperparameter knobs",
      "Hardcoded inside detector / extractor / tracking scripts",
-     "Surfaced in configs/warehouse_001_30s.yaml + recorded in manifests — but NOT propagated to upstream (v2)"),
+     "Surfaced in configs/baseline.yaml + recorded in manifests — but NOT propagated to upstream (v2)"),
     ("GPU VRAM budget",
      "12-16 GB (workstation GPU)",
      "6 GB (RTX 3050 Laptop) — verified via torch.cuda.mem_get_info"),
