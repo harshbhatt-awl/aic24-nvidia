@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import logging
 import shutil
 import subprocess
@@ -9,6 +10,7 @@ from ..config import Config
 from ..errors import StageError, ValidationError
 from ..paths import stage_dir
 from ..tracking_params import write_parameters_per_scene, build_tracking_params
+from ..world_projection import rewrite_world_coordinates
 from .base import atomic_stage, assert_vram_free
 
 log = logging.getLogger(__name__)
@@ -17,8 +19,41 @@ SCENE = "scene_001"
 SCENE_INT = 1
 
 
+def _load_camera_map(run_dir: Path) -> dict[int, str]:
+    """Read adapted/scene.json -> {numeric_id: nvidia_cam_name}.
+
+    scene.json shape: {scene_name: {yachiyo_cam_name: nvidia_cam_name}}
+    where yachiyo_cam_name is "camera_NNNN". Numeric id is
+    int(yachiyo_cam_name.split("_")[-1]).
+    """
+    scene_json = stage_dir(run_dir, "adapted") / "scene.json"
+    if not scene_json.exists():
+        return {}
+    body = json.loads(scene_json.read_text())[SCENE]
+    return {int(yk.split("_")[-1]): nvidia for yk, nvidia in body.items()}
+
+
+def _maybe_rewrite_world_coordinates(
+    *,
+    cfg_world_projection,
+    sct_scene_dir: Path,
+    pose_scene_dir: Path,
+    calib_root: Path,
+    camera_map: dict[int, str],
+) -> int:
+    if cfg_world_projection.method == "bbox_bottom":
+        return 0
+    return rewrite_world_coordinates(
+        sct_scene_dir=sct_scene_dir,
+        pose_scene_dir=pose_scene_dir,
+        calib_root=calib_root,
+        camera_map=camera_map,
+        method=cfg_world_projection.method,
+        ankle_min_conf=cfg_world_projection.ankle_min_conf,
+    )
+
+
 def _spans_multiple_cameras(global_json: Path) -> bool:
-    import json
     body = json.loads(global_json.read_text())
     # whole_tracking_results.json is camera-keyed dict of dicts with GlobalOfflineID.
     cams_per_gid: dict[int, set[str]] = {}
@@ -49,6 +84,19 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         if not src_scene.exists():
             raise ValidationError(f"SCT outputs missing at {src_scene}")
         shutil.copytree(src_scene, dst_scene)
+
+        # Optional: override per-detection WorldCoordinate using ankle keypoints.
+        # SCPT does not consume WorldCoordinate; this only affects MCT and eval.
+        camera_map = _load_camera_map(run_dir)
+        rewritten = _maybe_rewrite_world_coordinates(
+            cfg_world_projection=cfg.world_projection,
+            sct_scene_dir=dst_scene,
+            pose_scene_dir=stage_dir(run_dir, "pose") / SCENE,
+            calib_root=stage_dir(run_dir, "adapted") / "Original" / SCENE,
+            camera_map=camera_map,
+        )
+        log.info("mct world_projection: method=%s rewrites=%d",
+                 cfg.world_projection.method, rewritten)
 
         log_path = ctx.work_dir / "log.txt"
         for name, target in (
@@ -104,6 +152,11 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         ctx.set_params({
             "tracking_params": params,
             "hard_world_gate": cfg.mct.hard_world_gate,
+            "world_projection": {
+                "method": cfg.world_projection.method,
+                "ankle_min_conf": cfg.world_projection.ankle_min_conf,
+                "rewrites": rewritten,
+            },
             "propagated_via": "parameters_per_scene.py",
         })
         ctx.set_upstream([str(sct_manifest)])
