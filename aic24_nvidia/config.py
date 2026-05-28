@@ -54,6 +54,12 @@ class WorldProjectionCfg:
 
 
 @dataclass(frozen=True)
+class WorldSmoothingCfg:
+    method: str = "none"              # none | ema
+    ema_alpha: float = 0.3
+
+
+@dataclass(frozen=True)
 class Config:
     scene: str
     data_root: Path
@@ -68,6 +74,7 @@ class Config:
     mct: MctCfg
     eval: EvalCfg
     world_projection: WorldProjectionCfg
+    world_smoothing: WorldSmoothingCfg
     tracking_params: Mapping[str, object]
     vram_min_free_gb: float
     fps: int
@@ -138,6 +145,14 @@ def load_config(path: Path) -> Config:
     if not (0.0 <= wp_min_conf <= 1.0):
         raise ConfigError(f"world_projection.ankle_min_conf must be in [0, 1], got {wp_min_conf}")
     world_projection = WorldProjectionCfg(method=wp_method, ankle_min_conf=wp_min_conf)
+    ws_body = body.get("world_smoothing") or {}
+    ws_method = ws_body.get("method", "none")
+    if ws_method not in {"none", "ema"}:
+        raise ConfigError(f"world_smoothing.method must be one of none|ema, got {ws_method!r}")
+    ws_alpha = float(ws_body.get("ema_alpha", 0.3))
+    if not (0.0 <= ws_alpha <= 1.0):
+        raise ConfigError(f"world_smoothing.ema_alpha must be in [0, 1], got {ws_alpha}")
+    world_smoothing = WorldSmoothingCfg(method=ws_method, ema_alpha=ws_alpha)
     tracking_params = MappingProxyType(dict(body.get("tracking_params") or {}))
 
     return Config(
@@ -154,6 +169,7 @@ def load_config(path: Path) -> Config:
         mct=mct,
         eval=eval_cfg,
         world_projection=world_projection,
+        world_smoothing=world_smoothing,
         tracking_params=tracking_params,
         vram_min_free_gb=float(body["vram_min_free_gb"]),
         fps=int(body["fps"]),

@@ -147,3 +147,35 @@ def test_world_projection_ankle_min_conf_range(tmp_path):
     body["world_projection"] = {"method": "ankle_w_fallback", "ankle_min_conf": 1.5}
     with pytest.raises(ConfigError, match="ankle_min_conf"):
         load_config(_write(tmp_path, body))
+
+
+def test_world_smoothing_defaults(tmp_path):
+    """world_smoothing absent -> defaults to none + 0.3."""
+    body = _minimal(tmp_path)
+    cfg = load_config(_write(tmp_path, body))
+
+    assert cfg.world_smoothing.method == "none"
+    assert cfg.world_smoothing.ema_alpha == pytest.approx(0.3)
+
+
+def test_world_smoothing_explicit(tmp_path):
+    body = _minimal(tmp_path)
+    body["world_smoothing"] = {"method": "ema", "ema_alpha": 0.5}
+    cfg = load_config(_write(tmp_path, body))
+
+    assert cfg.world_smoothing.method == "ema"
+    assert cfg.world_smoothing.ema_alpha == pytest.approx(0.5)
+
+
+def test_world_smoothing_invalid_method(tmp_path):
+    body = _minimal(tmp_path)
+    body["world_smoothing"] = {"method": "kalman"}  # not implemented in v1
+    with pytest.raises(ConfigError, match="world_smoothing.method"):
+        load_config(_write(tmp_path, body))
+
+
+def test_world_smoothing_alpha_range(tmp_path):
+    body = _minimal(tmp_path)
+    body["world_smoothing"] = {"method": "ema", "ema_alpha": 1.5}
+    with pytest.raises(ConfigError, match="ema_alpha"):
+        load_config(_write(tmp_path, body))
