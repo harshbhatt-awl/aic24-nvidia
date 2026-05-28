@@ -286,7 +286,7 @@ def _rm_tree_handling_symlinks(path: Path) -> None:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    registry_path = Path(args.registry)
+    registry_path = Path(args.registry).resolve()
     exps = load_registry(registry_path)
     exp = next((e for e in exps if e["id"] == args.experiment), None)
     if exp is None:
