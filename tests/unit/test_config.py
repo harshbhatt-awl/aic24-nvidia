@@ -111,3 +111,31 @@ fps: 30
     assert cfg.eval.world_d_max == 1.0          # default
     assert cfg.mct.hard_world_gate is False     # default
     assert cfg.tracking_params == {}            # default empty
+
+
+def test_world_projection_defaults(tmp_path):
+    """When world_projection block is absent, defaults to bbox_bottom + 0.3."""
+    body = _minimal(tmp_path)
+    # Do NOT add world_projection
+    cfg = load_config(_write(tmp_path, body))
+
+    assert cfg.world_projection.method == "bbox_bottom"
+    assert cfg.world_projection.ankle_min_conf == pytest.approx(0.3)
+
+
+def test_world_projection_explicit(tmp_path):
+    """world_projection block is parsed and validated."""
+    body = _minimal(tmp_path)
+    body["world_projection"] = {"method": "ankle_avg", "ankle_min_conf": 0.5}
+    cfg = load_config(_write(tmp_path, body))
+
+    assert cfg.world_projection.method == "ankle_avg"
+    assert cfg.world_projection.ankle_min_conf == pytest.approx(0.5)
+
+
+def test_world_projection_invalid_method(tmp_path):
+    """Unknown method is rejected at load time."""
+    body = _minimal(tmp_path)
+    body["world_projection"] = {"method": "bogus"}
+    with pytest.raises(ConfigError, match="world_projection.method"):
+        load_config(_write(tmp_path, body))

@@ -48,6 +48,12 @@ class EvalCfg:
 
 
 @dataclass(frozen=True)
+class WorldProjectionCfg:
+    method: str = "bbox_bottom"        # bbox_bottom | ankle_avg | ankle_lower | ankle_w_fallback
+    ankle_min_conf: float = 0.3
+
+
+@dataclass(frozen=True)
 class Config:
     scene: str
     data_root: Path
@@ -61,6 +67,7 @@ class Config:
     sct: SctCfg
     mct: MctCfg
     eval: EvalCfg
+    world_projection: WorldProjectionCfg
     tracking_params: Mapping[str, object]
     vram_min_free_gb: float
     fps: int
@@ -123,6 +130,14 @@ def load_config(path: Path) -> Config:
     )
     eval_body = body.get("eval") or {}
     eval_cfg = EvalCfg(**eval_body) if eval_body else EvalCfg()
+    wp_body = body.get("world_projection") or {}
+    wp_method = wp_body.get("method", "bbox_bottom")
+    if wp_method not in {"bbox_bottom", "ankle_avg", "ankle_lower", "ankle_w_fallback"}:
+        raise ConfigError(f"world_projection.method must be one of bbox_bottom|ankle_avg|ankle_lower|ankle_w_fallback, got {wp_method!r}")
+    world_projection = WorldProjectionCfg(
+        method=wp_method,
+        ankle_min_conf=float(wp_body.get("ankle_min_conf", 0.3)),
+    )
     tracking_params = MappingProxyType(dict(body.get("tracking_params") or {}))
 
     return Config(
@@ -138,6 +153,7 @@ def load_config(path: Path) -> Config:
         sct=SctCfg(**body["sct"]),
         mct=mct,
         eval=eval_cfg,
+        world_projection=world_projection,
         tracking_params=tracking_params,
         vram_min_free_gb=float(body["vram_min_free_gb"]),
         fps=int(body["fps"]),
