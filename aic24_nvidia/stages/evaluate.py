@@ -13,7 +13,7 @@ from ..config import Config
 from ..errors import StageError, ValidationError
 from ..manifest import read_manifest
 from ..paths import stage_dir
-from ..world_tracks import aggregate_world_tracks, write_world_pred
+from ..world_tracks import aggregate_world_tracks, smooth_world_tracks, write_world_pred
 from ..world_metrics import run_world_eval, load_world_txt
 from .base import atomic_stage
 
@@ -237,6 +237,11 @@ def _eval_mct_world(cfg, ctx, mct_global, adapted_root):
         rows, dropped = aggregate_world_tracks(Path(mct_global))
         if not rows:
             return {"skipped": "MCT produced no valid world points"}
+        rows = smooth_world_tracks(
+            rows,
+            method=cfg.world_smoothing.method,
+            ema_alpha=cfg.world_smoothing.ema_alpha,
+        )
         pred_txt = ctx.work_dir / "mct_world_pred.txt"
         write_world_pred(rows, pred_txt)
 
@@ -328,5 +333,9 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
             "trackeval": "MOTChallenge + NvidiaMTMCWorld",
             "scope": "per-camera SCT + scene 3D-world MCT",
             "world_d_max": cfg.eval.world_d_max,
+            "world_smoothing": {
+                "method": cfg.world_smoothing.method,
+                "ema_alpha": cfg.world_smoothing.ema_alpha,
+            },
         })
         ctx.set_upstream([str(sct_manifest_path), str(mct_manifest_path)])
