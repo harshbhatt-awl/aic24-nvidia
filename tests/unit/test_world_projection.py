@@ -160,3 +160,179 @@ def test_compute_image_point_no_pose_falls_back():
     for method in ("ankle_avg", "ankle_lower", "ankle_w_fallback"):
         x, y = _compute_image_point(bbox, kps=None, method=method, ankle_min_conf=0.3)
         assert (x, y) == pytest.approx((100.0, 850.0)), f"method={method}"
+
+
+def _write_sct_json(path: Path, body: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(body))
+
+
+def _identity_calib_json(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "camera projection matrix": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]],
+        "homography matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+    }))
+
+
+def test_rewrite_bbox_bottom_is_noop(tmp_path):
+    """method=bbox_bottom leaves WorldCoordinate untouched (identity contract)."""
+    from aic24_nvidia.world_projection import rewrite_world_coordinates
+
+    sct_scene = tmp_path / "mct.tmp" / "scene_001"
+    pose_scene = tmp_path / "Pose" / "scene_001"
+    orig_scene = tmp_path / "adapted" / "Original" / "scene_001"
+
+    sct_json = sct_scene / "camera390_tracking_results.json"
+    original_body = {
+        "00000001": {
+            "Frame": 5, "NpyPath": "x",
+            "Coordinate": {"x1": 50, "y1": 100, "x2": 150, "y2": 850},
+            "WorldCoordinate": {"x": 7.0, "y": 11.0},   # arbitrary; should be preserved
+            "OfflineID": 0,
+        },
+    }
+    _write_sct_json(sct_json, original_body)
+
+    pose_json = pose_scene / "camera_0390" / "camera_0390_out_keypoint.json"
+    _write_pose_json(pose_json, {
+        "5": [{"bbox": [50, 100, 150, 850, 1.0],
+               "keypoints": [[0.0, 0.0, 0.0]] * 17}]
+    })
+    _identity_calib_json(orig_scene / "camera_0390" / "calibration.json")
+
+    rewritten = rewrite_world_coordinates(
+        sct_scene_dir=sct_scene,
+        pose_scene_dir=pose_scene,
+        calib_root=orig_scene,
+        camera_map={390: "camera_0390"},
+        method="bbox_bottom",
+        ankle_min_conf=0.3,
+    )
+
+    assert rewritten == 0   # no detections were rewritten
+    after = json.loads(sct_json.read_text())
+    assert after["00000001"]["WorldCoordinate"] == {"x": 7.0, "y": 11.0}
+
+
+def test_rewrite_ankle_avg_with_identity_homography(tmp_path):
+    """method=ankle_avg with identity homography projects ankles directly."""
+    from aic24_nvidia.world_projection import rewrite_world_coordinates
+
+    sct_scene = tmp_path / "mct.tmp" / "scene_001"
+    pose_scene = tmp_path / "Pose" / "scene_001"
+    orig_scene = tmp_path / "adapted" / "Original" / "scene_001"
+
+    sct_json = sct_scene / "camera390_tracking_results.json"
+    _write_sct_json(sct_json, {
+        "00000001": {
+            "Frame": 5, "NpyPath": "x",
+            "Coordinate": {"x1": 50, "y1": 100, "x2": 150, "y2": 850},
+            "WorldCoordinate": {"x": -999.0, "y": -999.0},
+            "OfflineID": 0,
+        },
+    })
+    pose_json = pose_scene / "camera_0390" / "camera_0390_out_keypoint.json"
+    kps = [[0.0, 0.0, 0.0]] * 17
+    kps[15] = [100.0, 800.0, 1.0]
+    kps[16] = [110.0, 810.0, 1.0]
+    _write_pose_json(pose_json, {"5": [{"bbox": [50, 100, 150, 850, 1.0], "keypoints": kps}]})
+    _identity_calib_json(orig_scene / "camera_0390" / "calibration.json")
+
+    rewritten = rewrite_world_coordinates(
+        sct_scene_dir=sct_scene,
+        pose_scene_dir=pose_scene,
+        calib_root=orig_scene,
+        camera_map={390: "camera_0390"},
+        method="ankle_avg",
+        ankle_min_conf=0.3,
+    )
+
+    assert rewritten == 1
+    after = json.loads(sct_json.read_text())
+    # ankle_avg with equal weights = midpoint = (105, 805); identity homography -> world same.
+    assert after["00000001"]["WorldCoordinate"]["x"] == pytest.approx(105.0)
+    assert after["00000001"]["WorldCoordinate"]["y"] == pytest.approx(805.0)
+
+
+def test_rewrite_pose_miss_falls_back_to_bbox_bottom(tmp_path):
+    """Detection without a matching pose entry falls back silently."""
+    from aic24_nvidia.world_projection import rewrite_world_coordinates
+
+    sct_scene = tmp_path / "mct.tmp" / "scene_001"
+    pose_scene = tmp_path / "Pose" / "scene_001"
+    orig_scene = tmp_path / "adapted" / "Original" / "scene_001"
+
+    sct_json = sct_scene / "camera390_tracking_results.json"
+    _write_sct_json(sct_json, {
+        "00000001": {
+            "Frame": 5, "NpyPath": "x",
+            "Coordinate": {"x1": 50, "y1": 100, "x2": 150, "y2": 850},
+            "WorldCoordinate": {"x": 0.0, "y": 0.0},
+            "OfflineID": 0,
+        },
+    })
+    pose_json = pose_scene / "camera_0390" / "camera_0390_out_keypoint.json"
+    # Pose JSON has a different bbox — miss on join.
+    _write_pose_json(pose_json, {"5": [{"bbox": [999, 999, 9999, 9999, 1.0],
+                                        "keypoints": [[0.0, 0.0, 0.0]] * 17}]})
+    _identity_calib_json(orig_scene / "camera_0390" / "calibration.json")
+
+    rewritten = rewrite_world_coordinates(
+        sct_scene_dir=sct_scene,
+        pose_scene_dir=pose_scene,
+        calib_root=orig_scene,
+        camera_map={390: "camera_0390"},
+        method="ankle_avg",
+        ankle_min_conf=0.3,
+    )
+
+    # Fallback to bbox_bottom = (100, 850); identity homography -> same.
+    after = json.loads(sct_json.read_text())
+    assert after["00000001"]["WorldCoordinate"]["x"] == pytest.approx(100.0)
+    assert after["00000001"]["WorldCoordinate"]["y"] == pytest.approx(850.0)
+    assert rewritten == 1   # still counts as "rewritten" (even if it landed on bbox_bottom)
+
+
+def test_rewrite_processes_both_fixed_and_unfixed(tmp_path):
+    """Both camera390_*.json and fixed_camera390_*.json are rewritten."""
+    from aic24_nvidia.world_projection import rewrite_world_coordinates
+
+    sct_scene = tmp_path / "mct.tmp" / "scene_001"
+    pose_scene = tmp_path / "Pose" / "scene_001"
+    orig_scene = tmp_path / "adapted" / "Original" / "scene_001"
+
+    det_body = {
+        "00000001": {
+            "Frame": 5, "NpyPath": "x",
+            "Coordinate": {"x1": 50, "y1": 100, "x2": 150, "y2": 850},
+            "WorldCoordinate": {"x": -1.0, "y": -1.0},
+            "OfflineID": 0,
+        },
+    }
+    _write_sct_json(sct_scene / "camera390_tracking_results.json", det_body)
+    _write_sct_json(sct_scene / "fixed_camera390_tracking_results.json", det_body)
+
+    kps = [[0.0, 0.0, 0.0]] * 17
+    kps[15] = [100.0, 800.0, 1.0]
+    kps[16] = [110.0, 810.0, 1.0]
+    _write_pose_json(
+        pose_scene / "camera_0390" / "camera_0390_out_keypoint.json",
+        {"5": [{"bbox": [50, 100, 150, 850, 1.0], "keypoints": kps}]},
+    )
+    _identity_calib_json(orig_scene / "camera_0390" / "calibration.json")
+
+    rewritten = rewrite_world_coordinates(
+        sct_scene_dir=sct_scene,
+        pose_scene_dir=pose_scene,
+        calib_root=orig_scene,
+        camera_map={390: "camera_0390"},
+        method="ankle_avg",
+        ankle_min_conf=0.3,
+    )
+    assert rewritten == 2  # one detection in each file
+
+    for fname in ("camera390_tracking_results.json", "fixed_camera390_tracking_results.json"):
+        body = json.loads((sct_scene / fname).read_text())
+        assert body["00000001"]["WorldCoordinate"]["x"] == pytest.approx(105.0)
+        assert body["00000001"]["WorldCoordinate"]["y"] == pytest.approx(805.0)

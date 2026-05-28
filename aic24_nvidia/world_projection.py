@@ -110,3 +110,104 @@ def _compute_image_point(
 
     # Unknown method (defensive — config validation prevents this).
     return _bbox_bottom_point(bbox)
+
+
+def _load_homography(calib_path: Path):
+    import numpy as np
+    body = json.loads(Path(calib_path).read_text())
+    return np.array(body["homography matrix"], dtype=np.float64)
+
+
+def _rewrite_one_file(
+    sct_json: Path,
+    pose_lookup: dict,
+    homography,
+    method: str,
+    ankle_min_conf: float,
+) -> int:
+    """Rewrite `WorldCoordinate` for every detection in one SCT JSON. Returns count."""
+    body = json.loads(sct_json.read_text())
+    n = 0
+    for _serial, entry in body.items():
+        if not isinstance(entry, dict):
+            continue
+        coord = entry.get("Coordinate")
+        frame = entry.get("Frame")
+        if coord is None or frame is None:
+            continue
+        try:
+            x1 = int(round(float(coord["x1"])))
+            y1 = int(round(float(coord["y1"])))
+            x2 = int(round(float(coord["x2"])))
+            y2 = int(round(float(coord["y2"])))
+            frame_i = int(frame)
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        kps = pose_lookup.get((frame_i, (x1, y1, x2, y2)))
+        x_img, y_img = _compute_image_point((x1, y1, x2, y2), kps, method, ankle_min_conf)
+        wx, wy = _project_to_world(x_img, y_img, homography)
+        # Skip NaN/inf — keep the original WorldCoordinate if projection blew up.
+        import math
+        if not (math.isfinite(wx) and math.isfinite(wy)):
+            continue
+        entry["WorldCoordinate"] = {"x": wx, "y": wy}
+        n += 1
+    sct_json.write_text(json.dumps(body))
+    return n
+
+
+def rewrite_world_coordinates(
+    *,
+    sct_scene_dir: Path,
+    pose_scene_dir: Path,
+    calib_root: Path,
+    camera_map: dict[int, str],
+    method: str,
+    ankle_min_conf: float,
+) -> int:
+    """Rewrite `WorldCoordinate` in every per-camera SCT JSON in place.
+
+    Args:
+        sct_scene_dir: e.g. `mct.tmp/scene_001/` — contains
+            `camera{N}_tracking_results.json` and
+            `fixed_camera{N}_tracking_results.json`.
+        pose_scene_dir: e.g. `Pose/scene_001/` — contains
+            `<nvidia_cam>/<nvidia_cam>_out_keypoint.json`.
+        calib_root: e.g. `adapted/Original/scene_001/` — contains
+            `<nvidia_cam>/calibration.json` with `"homography matrix"`.
+        camera_map: numeric_id -> nvidia_cam_name, e.g. `{390: "camera_0390"}`.
+        method: one of `bbox_bottom | ankle_avg | ankle_lower | ankle_w_fallback`.
+        ankle_min_conf: per-keypoint confidence floor used by ankle_w_fallback.
+
+    Returns:
+        Total number of detection rewrites across all files. When
+        `method == "bbox_bottom"` this is a true no-op and returns 0.
+    """
+    sct_scene_dir = Path(sct_scene_dir)
+    pose_scene_dir = Path(pose_scene_dir)
+    calib_root = Path(calib_root)
+
+    if method == "bbox_bottom":
+        return 0   # no-op contract; baseline must be byte-identical
+
+    total = 0
+    for cam_id, nvidia_name in camera_map.items():
+        pose_json = pose_scene_dir / nvidia_name / f"{nvidia_name}_out_keypoint.json"
+        calib_json = calib_root / nvidia_name / "calibration.json"
+        if not pose_json.exists() or not calib_json.exists():
+            # Missing pose or calibration -> skip this camera (no rewrite).
+            continue
+
+        pose_lookup = _build_pose_lookup(pose_json)
+        homography = _load_homography(calib_json)
+
+        for stem in (f"camera{cam_id:03d}_tracking_results.json",
+                     f"fixed_camera{cam_id:03d}_tracking_results.json"):
+            sct_json = sct_scene_dir / stem
+            if not sct_json.exists():
+                continue
+            total += _rewrite_one_file(
+                sct_json, pose_lookup, homography, method, ankle_min_conf,
+            )
+    return total
