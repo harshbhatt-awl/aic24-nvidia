@@ -182,3 +182,38 @@ experiments:
           world_smoothing:
             method: ema
             ema_alpha: 0.7
+
+  - id: ankle_lower_x_smoother
+    description: "Cross-product: best ankle method (ankle_lower) x EMA alpha sweep (extended low-alpha)."
+    hypothesis: "ankle_lower + aggressive EMA compounds: world HOTA target ~0.50+."
+    base_config: configs/baseline.yaml
+    rerun_from: mct
+    variants:
+      - name: "ema_0.1"
+        overrides:
+          world_projection:
+            method: ankle_lower
+          world_smoothing:
+            method: ema
+            ema_alpha: 0.1
+      - name: "ema_0.2"
+        overrides:
+          world_projection:
+            method: ankle_lower
+          world_smoothing:
+            method: ema
+            ema_alpha: 0.2
+      - name: "ema_0.3"
+        overrides:
+          world_projection:
+            method: ankle_lower
+          world_smoothing:
+            method: ema
+            ema_alpha: 0.3
+      - name: "ema_0.5"
+        overrides:
+          world_projection:
+            method: ankle_lower
+          world_smoothing:
+            method: ema
+            ema_alpha: 0.5
