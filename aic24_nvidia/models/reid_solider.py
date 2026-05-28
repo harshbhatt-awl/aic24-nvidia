@@ -30,10 +30,12 @@ def _get_transform():
     global _TRANSFORM
     if _TRANSFORM is None:
         import torchvision.transforms as T  # type: ignore
+        from aic24_nvidia.models.solider import SOLIDER_SIZE, SOLIDER_MEAN, SOLIDER_STD
+
         _TRANSFORM = T.Compose([
-            T.Resize([256, 128]),
+            T.Resize(list(SOLIDER_SIZE)),
             T.ToTensor(),
-            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            T.Normalize(mean=list(SOLIDER_MEAN), std=list(SOLIDER_STD)),
         ])
     return _TRANSFORM
 
