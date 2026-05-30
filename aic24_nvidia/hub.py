@@ -82,3 +82,21 @@ def discover_runs(outputs_root: Path) -> list[RunInfo]:
             finished_at=finished_at,
         ))
     return runs
+
+
+def build_pipeline_cmd(config: Path, stages: list[str] | None,
+                       run_id: str | None, force: bool) -> list[list[str]]:
+    """Return argv lists for pipeline.py. stages=None -> a single 'all' command;
+    otherwise one command per selected stage, in registry order. Each argv runs
+    under sys.executable (same interpreter as the hub)."""
+    common = ["--config", str(config)]
+    if run_id:
+        common += ["--run-id", run_id]
+    if force:
+        common += ["--force"]
+    base = [sys.executable, "pipeline.py"]
+    if not stages:
+        return [base + ["all"] + common]
+    selected = set(stages)
+    ordered = [s for s in _stage_order() if s in selected]
+    return [base + [s] + common for s in ordered]

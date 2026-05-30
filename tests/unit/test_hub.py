@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 
 from aic24_nvidia import hub
@@ -48,3 +49,23 @@ def test_discover_runs_reads_stages_status_and_metrics(tmp_path):
 
 def test_discover_runs_empty_when_no_outputs(tmp_path):
     assert hub.discover_runs(tmp_path / "nothing") == []
+
+
+def test_build_pipeline_cmd_all_is_single_command():
+    cmds = hub.build_pipeline_cmd(Path("configs/baseline.yaml"), None, None, False)
+    assert cmds == [[sys.executable, "pipeline.py", "all", "--config", "configs/baseline.yaml"]]
+
+
+def test_build_pipeline_cmd_runid_and_force():
+    cmds = hub.build_pipeline_cmd(Path("configs/baseline.yaml"), None, "baseline", True)
+    assert cmds == [[
+        sys.executable, "pipeline.py", "all",
+        "--config", "configs/baseline.yaml", "--run-id", "baseline", "--force",
+    ]]
+
+
+def test_build_pipeline_cmd_specific_stages_in_registry_order():
+    cmds = hub.build_pipeline_cmd(Path("c.yaml"), ["detect", "adapt"], None, False)
+    assert [c[2] for c in cmds] == ["adapt", "detect"]
+    assert all(c[0] == sys.executable and c[1] == "pipeline.py" for c in cmds)
+    assert cmds[0][2:] == ["adapt", "--config", "c.yaml"]
