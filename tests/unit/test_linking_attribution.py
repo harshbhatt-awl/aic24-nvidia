@@ -76,3 +76,37 @@ def test_load_tracks_joins_counts_scores_and_linked(tmp_path):
     assert tracks[("395", -1)].n_detections == 1
     assert tracks[("395", -1)].n_all_serials == -1
     assert tracks[("395", -1)].score == -1
+
+
+from aic24_nvidia.diagnostics.linking_attribution import attribute, reconcile
+
+
+def _tracks():
+    # two cameras; counts chosen so totals are easy to check
+    return [
+        Track("390", 1, n_detections=100, n_all_serials=200, score=1, linked=True),   # kept
+        Track("390", 2, n_detections=30,  n_all_serials=50,  score=1, linked=False),  # E1
+        Track("390", 3, n_detections=40,  n_all_serials=200, score=3, linked=False),  # E2
+        Track("395", 4, n_detections=10,  n_all_serials=-1,  score=-1, linked=False), # E1 (absent rep)
+        Track("395", -1, n_detections=5,  n_all_serials=-1,  score=-1, linked=False), # G0
+    ]
+
+
+def test_attribute_rolls_up_per_camera_and_gate():
+    per_cam, totals = attribute(_tracks(), short_track_th=120, keypoint_condition_th=1)
+    assert per_cam["390"][KEPT] == 100
+    assert per_cam["390"][E1_SHORT] == 30
+    assert per_cam["390"][E2_KEYPOINT] == 40
+    assert per_cam["395"][E1_SHORT] == 10
+    assert per_cam["395"][G0_UNTRACKED] == 5
+    assert totals[KEPT] == 100
+    assert totals[E1_SHORT] == 40
+    assert totals[E2_KEYPOINT] == 40
+    assert totals[G0_UNTRACKED] == 5
+
+
+def test_reconcile_flags_clean_when_kept_matches_linked():
+    rep = reconcile(_tracks(), short_track_th=120, keypoint_condition_th=1)
+    assert rep["dropped"] == 85          # 30+40+10+5
+    assert rep["kept"] == 100
+    assert rep["kept_linked_mismatch"] == 0   # classify==KEPT iff linked, on this fixture

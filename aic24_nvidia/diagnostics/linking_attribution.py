@@ -73,3 +73,30 @@ def load_tracks(whole_json: str | Path, rep_json: str | Path) -> list[Track]:
         n_all, score = rep_by.get((cam, oid), (-1, -1))
         tracks.append(Track(cam, oid, n, n_all, score, linked[(cam, oid)]))
     return tracks
+
+
+def attribute(tracks: list[Track], short_track_th: int, keypoint_condition_th: int):
+    """Return (per_camera, totals) detection-count rollups keyed by gate label."""
+    per_cam: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for t in tracks:
+        gate = classify_track(t, short_track_th, keypoint_condition_th)
+        per_cam[t.camera][gate] += t.n_detections
+    totals: dict[str, int] = defaultdict(int)
+    for gates in per_cam.values():
+        for g, c in gates.items():
+            totals[g] += c
+    return {c: dict(g) for c, g in per_cam.items()}, dict(totals)
+
+
+def reconcile(tracks: list[Track], short_track_th: int, keypoint_condition_th: int):
+    """Roll up and verify the kept<->linked invariant the model rests on."""
+    _, totals = attribute(tracks, short_track_th, keypoint_condition_th)
+    kept = totals.get(KEPT, 0)
+    dropped = sum(totals.get(g, 0) for g in (G0_UNTRACKED, E1_SHORT, E2_KEYPOINT))
+    mismatch = 0
+    for t in tracks:
+        is_kept = classify_track(t, short_track_th, keypoint_condition_th) == KEPT
+        if is_kept != t.linked:
+            mismatch += t.n_detections
+    return {"kept": kept, "dropped": dropped, "totals": totals,
+            "kept_linked_mismatch": mismatch}
