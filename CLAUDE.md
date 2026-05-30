@@ -17,6 +17,13 @@ Each stage module is `aic24_nvidia/stages/<name>.py`, exposes `run(cfg, run_dir,
 `manifest.json`. Stages are manifest-gated (skip if done, refuse if upstream missing) and chained by
 `pipeline.py`.
 
+The stage graph is a **single source of truth** in `aic24_nvidia/registry.py` — an ordered `StageSpec`
+list (`name, dir_name, upstream, run, wiring`) that both `pipeline.py` and `experiments/_lib.py`
+consume (no more parallel dicts). Each stage also declares its external-symlink
+`WIRING(run_dir, cfg, output_dir)` (output exposure + input cross-wiring); `atomic_stage` applies it
+pre-run (→`.tmp`) and post-promotion (→final), and `experiments/_lib.py:prime_external_symlinks`
+replays the same wiring for cache-reused stages.
+
 The orchestrator shells into the upstream repo + sibling repos under `external/` and harvests their
 outputs into our run dir via **symlinks** (upstream honours no env-var path overrides). Upstream writes
 to `external/{Original,Detection,EmbedFeature,Pose,Tracking}/`, which are symlinked to
