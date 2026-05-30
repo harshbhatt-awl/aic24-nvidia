@@ -58,6 +58,48 @@ def _detect_image(model, img_path, conf_thresh, nms_iou):
     return rows
 
 
+class YoloDetector:
+    """Default DetectorBackend: ultralytics YOLO11-x, person class only.
+
+    Mirrors _make_model + _detect_image. conf/nms are captured at load() and
+    applied in infer(). imgsz and class id are model-internal defaults.
+    """
+
+    IMGSZ = 1920
+    PERSON_CLASS = 0
+
+    def __init__(self) -> None:
+        self._model = None
+        self._conf = None
+        self._nms = None
+
+    def load(self, cfg, weights_root) -> None:
+        from ultralytics import YOLO
+        weights = str(weights_root / cfg.weights) if cfg.weights else "yolo11x.pt"
+        self._model = YOLO(weights)
+        self._conf = cfg.conf_thresh
+        self._nms = cfg.nms_iou
+
+    def infer(self, img_path):
+        res = self._model.predict(
+            str(img_path), classes=[self.PERSON_CLASS],
+            conf=self._conf, iou=self._nms, imgsz=self.IMGSZ, verbose=False,
+        )[0]
+        rows = []
+        for b in res.boxes:
+            x1, y1, x2, y2 = b.xyxy[0].tolist()
+            rows.append((x1, y1, x2, y2, float(b.conf[0])))
+        return rows
+
+    def teardown(self) -> None:
+        self._model = None
+        import gc
+        import torch
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+
 def run_detection(scene_dir, det_out_dir, cams, conf_thresh, nms_iou,
                   weights="yolo11x.pt", detect=None):
     """Run YOLO11 person detection over Original/<scene>/<cam>/Frame/*.jpg and
