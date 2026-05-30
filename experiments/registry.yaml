@@ -59,14 +59,26 @@ experiments:
 
   - id: eps_scpt_sweep
     description: "Sweep the per-camera SCPT clustering threshold around the baseline."
-    hypothesis: "Confirm the 2026-05-27 sweep result (best at 0.30) reproduces with the locked baseline."
+    hypothesis: "At v3 (ankle_lower + ema_0.3), cleaner world coords let SCT cluster more aggressively. 0.20 won the coarse sweep; probe finer around it."
     base_config: configs/baseline.yaml
     rerun_from: sct
     variants:
+      - name: "0.10"
+        overrides:
+          tracking_params:
+            epsilon_scpt: 0.10
+      - name: "0.15"
+        overrides:
+          tracking_params:
+            epsilon_scpt: 0.15
       - name: "0.20"
         overrides:
           tracking_params:
             epsilon_scpt: 0.20
+      - name: "0.25"
+        overrides:
+          tracking_params:
+            epsilon_scpt: 0.25
       - name: "0.30"   # = baseline
         overrides:
           tracking_params:
@@ -239,3 +251,39 @@ experiments:
           world_smoothing:
             method: ema
             ema_alpha: 0.4
+
+  - id: linking_gate_sweep
+    description: "Sweep the two MCPT eligibility gates that drop 100% of unlinked detections (E2 keypoint 74%, E1 length 26%)."
+    hypothesis: "Admitting more tracks past keypoint_condition_th / short_track_th raises world DetA; net world HOTA rises if the admitted tracks aren't too noisy for AssA."
+    base_config: configs/baseline.yaml
+    rerun_from: sct          # tracking_params.* -> sct (registry convention); detect/reid/pose reused
+    variants:
+      - name: "baseline"     # control: keypoint_condition_th=1, short_track_th=120
+        overrides:
+          tracking_params:
+            keypoint_condition_th: 1
+            short_track_th: 120
+      - name: "kp2"          # E2: admit score<=2
+        overrides:
+          tracking_params:
+            keypoint_condition_th: 2
+      - name: "kp3"          # E2: admit score<=3
+        overrides:
+          tracking_params:
+            keypoint_condition_th: 3
+      - name: "kp4"          # E2: admit all (score<=4)
+        overrides:
+          tracking_params:
+            keypoint_condition_th: 4
+      - name: "st60"         # E1: admit tracks >=60
+        overrides:
+          tracking_params:
+            short_track_th: 60
+      - name: "st30"         # E1: admit tracks >=30
+        overrides:
+          tracking_params:
+            short_track_th: 30
+      - name: "st15"         # E1: admit tracks >=15
+        overrides:
+          tracking_params:
+            short_track_th: 15
