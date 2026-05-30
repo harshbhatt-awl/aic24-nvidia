@@ -25,6 +25,7 @@ from experiments._lib import (
     STAGE_DIR,
     deep_merge,
     load_registry,
+    prime_external_symlinks,
     setup_cache_symlinks,
     stages_to_rerun,
     stages_to_reuse,
@@ -228,3 +229,38 @@ experiments:
 """)
     with pytest.raises(ValueError, match="rerun_from"):
         load_registry(p)
+
+
+# --------------------------------------------------------------------------- #
+# prime_external_symlinks (replays each reused stage's registry wiring)
+# --------------------------------------------------------------------------- #
+
+def _run_with_stage_dirs(root: Path, *stages: str) -> Path:
+    run = root / "exp__v1"
+    for s in stages:
+        (run / STAGE_DIR[s]).mkdir(parents=True)
+    return run
+
+
+def test_prime_links_reused_detect_and_reid_outputs(tmp_path: Path):
+    ext = tmp_path / "external"
+    yac = ext / "Y"
+    run = _run_with_stage_dirs(tmp_path, "detect", "reid")
+    prime_external_symlinks(run_dir=run, external_root=ext, yachiyo_root=yac,
+                            reused_stages=["detect", "reid"])
+    assert (ext / "Detection").resolve() == (run / "detect").resolve()
+    assert (ext / "EmbedFeature").resolve() == (run / "reid").resolve()
+
+
+def test_prime_replays_full_wiring_for_reused_mct(tmp_path: Path):
+    # The old hand-maintained plan omitted mct entirely; the registry wiring
+    # covers it (Tracking output + EmbedFeature/Detection/Pose inputs).
+    ext = tmp_path / "external"
+    yac = ext / "Y"
+    run = _run_with_stage_dirs(tmp_path, "detect", "reid", "pose", "mct")
+    prime_external_symlinks(run_dir=run, external_root=ext, yachiyo_root=yac,
+                            reused_stages=["mct"])
+    assert (yac / "Tracking").resolve() == (run / "mct").resolve()
+    assert (yac / "EmbedFeature").resolve() == (run / "reid").resolve()
+    assert (yac / "Detection").resolve() == (run / "detect").resolve()
+    assert (yac / "Pose").resolve() == (run / "pose").resolve()

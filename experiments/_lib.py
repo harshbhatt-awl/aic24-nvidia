@@ -171,30 +171,26 @@ def prime_external_symlinks(
     This function pre-stages those symlinks so that EVEN IF we cache-reuse
     upstream stages, the external/ links point at the current run_dir/<stage>/
     (which is itself a symlink into baseline's outputs).
+
+    It replays each reused stage's declared wiring (registry.StageSpec.wiring) —
+    the SAME source of truth the live run uses via base.atomic_stage — so the
+    cache-reuse and live paths can no longer diverge. (Previously this was a
+    hand-maintained mirror that already omitted mct.)
     """
+    from types import SimpleNamespace
+
     from aic24_nvidia.bootstrap import make_symlink  # local import
 
-    # name → (link, target) pairs that mirror what each stage does at the end
-    # of its run() function. Source-of-truth is the grep on stages/*.py.
-    plan: dict[str, tuple[Path, Path]] = {
-        "adapt": (external_root / "Original",
-                  run_dir / STAGE_DIR["adapt"] / "Original"),
-        "detect": (external_root / "Detection",
-                   run_dir / STAGE_DIR["detect"]),
-        "reid": (external_root / "EmbedFeature",
-                 run_dir / STAGE_DIR["reid"]),
-        "pose": (external_root / "Pose",
-                 run_dir / STAGE_DIR["pose"]),
-        "sct": (yachiyo_root / "Tracking",
-                run_dir / STAGE_DIR["sct"]),
-        # mct also writes Tracking but only matters if mct itself is reused
-        # and a later stage reads it — currently nothing downstream of mct
-        # reads via this path (evaluate uses absolute manifest paths).
-    }
-
+    run_dir = Path(run_dir)
+    cfg = SimpleNamespace(
+        external_root=Path(external_root), yachiyo_root=Path(yachiyo_root)
+    )
     for stage in reused_stages:
-        if stage in plan:
-            link, target = plan[stage]
-            target = target.resolve()
+        spec = registry.by_name(stage)
+        output_dir = (run_dir / spec.dir_name).resolve()
+        if not output_dir.exists():
+            continue
+        for link, target in spec.wiring(run_dir, cfg, output_dir):
+            target = Path(target).resolve()
             if target.exists():
                 make_symlink(target, link)
