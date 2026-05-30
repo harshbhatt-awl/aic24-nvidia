@@ -41,8 +41,9 @@
 #   `score > keypoint_condition_th` (lower score = better keypoints). At the
 #   v3.1 value of 1 it dropped 12,126 detections (74% of the entire 55% linking
 #   loss) — verified by aic24_nvidia/diagnostics/linking_attribution. Opening it
-#   to 3 admits score-2/3 tracks (world DetA 0.44->0.65, world HOTA +0.1076);
-#   4 (admit-all) regresses because score-4 poses are too noisy (AssA -0.036).
+#   to 3 admits score-2/3 tracks (world DetA 0.44->0.65, world HOTA +0.1076 vs
+#   v3.1); going on to 4 (admit-all) regresses vs 3 (world HOTA -0.008, AssA
+#   -0.026 kp4-vs-kp3) because score-4 poses are too noisy.
 #   Attribution: docs/superpowers/specs/2026-05-31-mct-linking-attribution-design.md.
 #   NOTE single-scene caveat: like all baseline tuning, fit on scene_044 only.
 # - short_track_th 120 kept: the linking_gate_sweep showed lowering it
@@ -66,10 +67,13 @@
 #   assignment path that uses sim_th isn't exercised in this scene.
 # - delete_gid_th: baseline 5000 deletes ALL global ids (max gid=1570 dets) ->
 #   empty fixed_whole -> pipeline falls back to the RAW whole_tracking_results.
-#   2026-05-31 delete_gid_sweep: ACTIVATING the correction (delete_gid_th 0/50/100,
-#   fixed_whole used) REGRESSES world HOTA (0.6305 < 0.6479 raw) — the MCPT
-#   tracklet-interpolation/pruning "correction" is net-negative for this scene.
-#   Keep 5000 (raw fallback is optimal). 800 spikes AssA to 0.74 but craters DetA.
+#   2026-05-31 delete_gid_sweep (run at eps_scpt=0.20, i.e. the v3.2 base):
+#   ACTIVATING the correction (delete_gid_th 0/50/100, fixed_whole used) REGRESSES
+#   world HOTA (0.6305 < 0.6359 raw, both at eps_scpt=0.20) — the MCPT tracklet-
+#   interpolation/pruning "correction" is net-negative for this scene. Keep 5000
+#   (raw fallback is optimal). 800 spikes AssA to 0.74 but craters DetA to 0.44.
+#   (Sweep predates the v3.3 eps_scpt retune; not re-run since the conclusion —
+#   correction is net-negative — is independent of eps_scpt.)
 #
 # Known remaining bottlenecks (not addressed on this branch)
 # ----------------------------------------------------------
