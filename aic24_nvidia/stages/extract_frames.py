@@ -32,6 +32,12 @@ def _validate_frame_counts(adapted_root: Path, fps: int, duration_sec: float) ->
     return counts
 
 
+def WIRING(run_dir: Path, cfg: Config, output_dir: Path):
+    # extract_frame.py runs with CWD=yachiyo and reads Original/ relative to it.
+    # output_dir is unused — frames does not expose its own output via symlink.
+    return [(cfg.yachiyo_root / "Original", stage_dir(run_dir, "adapted") / "Original")]
+
+
 def run(cfg: Config, run_dir: Path, run_id: str) -> None:
     adapt_manifest = stage_dir(run_dir, "adapted") / "manifest.json"
     adapted_root = stage_dir(run_dir, "adapted")
@@ -42,20 +48,10 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
 
     scene_name = "scene_001"
 
-    with atomic_stage(run_dir, "frames", run_id=run_id) as ctx:
+    with atomic_stage(run_dir, "frames", run_id=run_id, cfg=cfg, wiring=WIRING) as ctx:
         log_path = ctx.work_dir / "log.txt"
-        # extract_frame.py runs with CWD=yachiyo and root_path="./"
-        # which resolves to yachiyo/Original/.. — we need yachiyo/Original to be
-        # the adapted tree. The adapt stage already symlinked
-        # external/Original -> adapted/Original. But this stage's invocation
-        # passes "./" (the upstream repo root) as root_path, so it looks at
-        # yachiyo/Original, NOT external/Original. We additionally symlink
-        # yachiyo/Original -> adapted/Original for the duration of this stage.
-        from ..bootstrap import make_symlink, ensure_dir_clean
-        yachiyo_original = yachiyo / "Original"
-        ensure_dir_clean(yachiyo_original)
-        make_symlink(adapted_root / "Original", yachiyo_original)
-
+        # extract_frame.py runs with CWD=yachiyo and reads yachiyo/Original; WIRING
+        # points that at the adapted tree (applied before this body runs).
         with open(log_path, "w") as lf:
             proc = subprocess.run(
                 ["python3", "tools/extract_frame.py", "-s", scene_name, "./"],

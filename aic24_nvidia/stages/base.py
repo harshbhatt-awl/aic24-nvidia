@@ -6,8 +6,23 @@ from pathlib import Path
 import shutil
 import time
 
+from ..bootstrap import ensure_dir_clean, make_symlink
 from ..manifest import Manifest, write_manifest
 from ..paths import stage_dir, stage_tmp_dir
+
+
+def _apply_links(links) -> None:
+    """Materialize a list of (link_path, target_path) symlinks.
+
+    ensure_dir_clean + make_symlink per pair — the exact sequence the stages used
+    to run inline. base.py owns this so a stage declares its wiring once (see
+    aic24_nvidia.registry) instead of symlinking by hand. NOTE: base.py must NOT
+    import registry (registry imports the stage modules, which import base) — the
+    wiring callable is passed into atomic_stage instead, so there is no cycle.
+    """
+    for link, target in links:
+        ensure_dir_clean(link)
+        make_symlink(target, link)
 
 
 @dataclass
@@ -36,18 +51,27 @@ class StageCtx:
 
 
 @contextmanager
-def atomic_stage(run_dir: Path, stage: str, run_id: str):
+def atomic_stage(run_dir: Path, stage: str, run_id: str, *, cfg=None, wiring=None):
     """Run a stage with atomic on-disk semantics.
 
     - writes outputs to run_dir/<stage>.tmp/
     - on clean exit writes manifest.json (status=ok) then renames .tmp/ -> final/
     - on exception leaves .tmp/ in place for inspection; no final dir created
+
+    When ``cfg`` and ``wiring`` are supplied, the stage's external symlinks are
+    applied centrally here: pre-run with output_dir=<stage>.tmp (so upstream
+    tooling reads/writes the in-progress dir) and post-promotion with
+    output_dir=<stage> (re-pointed to the final dir). ``wiring`` is a callable
+    ``(run_dir, cfg, output_dir) -> list[(link, target)]`` — see registry.StageSpec.
     """
     tmp = stage_tmp_dir(run_dir, stage)
     final = stage_dir(run_dir, stage)
     if tmp.exists():
         shutil.rmtree(tmp)
     tmp.mkdir(parents=True, exist_ok=True)
+
+    if cfg is not None and wiring is not None:
+        _apply_links(wiring(run_dir, cfg, tmp))
 
     started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     t0 = time.time()
@@ -86,6 +110,10 @@ def atomic_stage(run_dir: Path, stage: str, run_id: str):
     # Also cover the non-resolved form in case they differ (e.g. symlinks).
     raw = raw.replace(str(tmp), str(final))
     manifest_path.write_text(raw)
+
+    # Re-point the stage's external symlinks at the promoted final dir.
+    if cfg is not None and wiring is not None:
+        _apply_links(wiring(run_dir, cfg, final))
 
 
 @contextmanager

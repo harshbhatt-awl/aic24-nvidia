@@ -2,7 +2,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from ..bootstrap import ensure_dir_clean, make_symlink
 from ..config import Config
 from ..errors import ValidationError
 from ..paths import stage_dir
@@ -11,6 +10,11 @@ from .base import atomic_stage, assert_vram_free
 log = logging.getLogger(__name__)
 
 SCENE = "scene_001"
+
+
+def WIRING(run_dir: Path, cfg: Config, output_dir: Path):
+    # Expose this stage's embeddings at external/EmbedFeature.
+    return [(cfg.external_root / "EmbedFeature", output_dir)]
 
 
 def _per_cam_feature_counts(emb_dir: Path) -> dict[str, int]:
@@ -28,11 +32,9 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
 
     detect_manifest = stage_dir(run_dir, "detect") / "manifest.json"
 
-    with atomic_stage(run_dir, "reid", run_id=run_id) as ctx:
-        emb_root = cfg.external_root / "EmbedFeature"
-        ensure_dir_clean(emb_root)
-        make_symlink(ctx.work_dir, emb_root)
-
+    with atomic_stage(run_dir, "reid", run_id=run_id, cfg=cfg, wiring=WIRING) as ctx:
+        # external/EmbedFeature is wired by WIRING (output_dir during run, final
+        # after promotion).
         from ..models import reid_solider
         original = cfg.external_root / "Original"
         det_scene = stage_dir(run_dir, "detect") / SCENE
@@ -60,5 +62,3 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
             "similarity_thresh": cfg.reid.similarity_thresh,
         })
         ctx.set_upstream([str(detect_manifest)])
-
-    make_symlink(stage_dir(run_dir, "reid"), cfg.external_root / "EmbedFeature")

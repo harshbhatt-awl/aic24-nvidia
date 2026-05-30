@@ -2,7 +2,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from ..bootstrap import ensure_dir_clean, make_symlink
 from ..config import Config
 from ..errors import ValidationError
 from ..paths import stage_dir
@@ -11,6 +10,11 @@ from .base import atomic_stage, assert_vram_free
 log = logging.getLogger(__name__)
 
 SCENE = "scene_001"
+
+
+def WIRING(run_dir: Path, cfg: Config, output_dir: Path):
+    # Expose this stage's keypoints at external/Pose.
+    return [(cfg.external_root / "Pose", output_dir)]
 
 
 def _per_cam_pose_files(pose_dir: Path) -> dict[str, str]:
@@ -36,11 +40,9 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
     if not cams:
         raise ValidationError(f"no detection .txt files in {det_scene_dir}")
 
-    with atomic_stage(run_dir, "pose", run_id=run_id) as ctx:
-        pose_root = cfg.external_root / "Pose"
-        ensure_dir_clean(pose_root)
-        make_symlink(ctx.work_dir, pose_root)
-
+    with atomic_stage(run_dir, "pose", run_id=run_id, cfg=cfg, wiring=WIRING) as ctx:
+        # external/Pose is wired by WIRING (output_dir during run, final after
+        # promotion).
         from ..models import pose_rtmpose
         original = cfg.external_root / "Original"
         pose_rtmpose.run_pose(
@@ -64,5 +66,3 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
             "model": "rtmpose-l",
         })
         ctx.set_upstream([str(reid_manifest)])
-
-    make_symlink(stage_dir(run_dir, "pose"), cfg.external_root / "Pose")

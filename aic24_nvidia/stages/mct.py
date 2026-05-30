@@ -5,7 +5,6 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from ..bootstrap import ensure_dir_clean, make_symlink
 from ..config import Config
 from ..errors import StageError, ValidationError
 from ..paths import stage_dir
@@ -70,6 +69,17 @@ def _spans_multiple_cameras(global_json: Path) -> bool:
     return any(len(s) >= 2 for s in cams_per_gid.values())
 
 
+def WIRING(run_dir: Path, cfg: Config, output_dir: Path):
+    # Like sct, plus Pose/ which the MCPT correction step reads.
+    y = cfg.yachiyo_root
+    return [
+        (y / "Tracking", output_dir),
+        (y / "EmbedFeature", stage_dir(run_dir, "reid")),
+        (y / "Detection", stage_dir(run_dir, "detect")),
+        (y / "Pose", stage_dir(run_dir, "pose")),
+    ]
+
+
 def run(cfg: Config, run_dir: Path, run_id: str) -> None:
     assert_vram_free(cfg.vram_min_free_gb)
 
@@ -77,7 +87,7 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
     sct_manifest = sct_dir / "manifest.json"
     yachiyo = cfg.yachiyo_root
 
-    with atomic_stage(run_dir, "mct", run_id=run_id) as ctx:
+    with atomic_stage(run_dir, "mct", run_id=run_id, cfg=cfg, wiring=WIRING) as ctx:
         # Stage SCT outputs into mct.tmp/ so upstream sees them.
         src_scene = sct_dir / SCENE
         dst_scene = ctx.work_dir / SCENE
@@ -99,15 +109,8 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
                  cfg.world_projection.method, rewritten)
 
         log_path = ctx.work_dir / "log.txt"
-        for name, target in (
-            ("Tracking", ctx.work_dir),
-            ("EmbedFeature", stage_dir(run_dir, "reid")),
-            ("Detection", stage_dir(run_dir, "detect")),
-            ("Pose", stage_dir(run_dir, "pose")),
-        ):
-            link = yachiyo / name
-            ensure_dir_clean(link)
-            make_symlink(target, link)
+        # yachiyo/{Tracking,EmbedFeature,Detection,Pose} are wired by WIRING
+        # before this body runs.
 
         # Propagate hyperparameters: write parameters_per_scene.py so infer.py
         # reads our config instead of falling back to hardcoded defaults.
@@ -160,5 +163,3 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
             "propagated_via": "parameters_per_scene.py",
         })
         ctx.set_upstream([str(sct_manifest)])
-
-    make_symlink(stage_dir(run_dir, "mct"), cfg.yachiyo_root / "Tracking")

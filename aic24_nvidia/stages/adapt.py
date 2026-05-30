@@ -4,15 +4,20 @@ import logging
 from pathlib import Path
 
 from ..adapter.nvidia_to_yachiyo import adapt_scene
-from ..bootstrap import make_symlink
 from ..config import Config
 from .base import atomic_stage
 
 log = logging.getLogger(__name__)
 
 
+def WIRING(run_dir: Path, cfg: Config, output_dir: Path):
+    # Expose the adapted Original tree so downstream stages and the upstream
+    # tooling find frames at external/Original.
+    return [(cfg.external_root / "Original", output_dir / "Original")]
+
+
 def run(cfg: Config, run_dir: Path, run_id: str) -> None:
-    with atomic_stage(run_dir, "adapted", run_id=run_id) as ctx:
+    with atomic_stage(run_dir, "adapted", run_id=run_id, cfg=cfg, wiring=WIRING) as ctx:
         outputs = adapt_scene(cfg, ctx.work_dir)
         ctx.set_inputs({"scene_dir": str(cfg.scene_dir)})
         ctx.set_outputs(outputs)
@@ -22,7 +27,3 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
             "fps": cfg.fps,
         })
         ctx.set_upstream([])
-    # After atomic promotion, set up the symlink so downstream stages see the data.
-    final_adapted = run_dir / "adapted" / "Original"
-    make_symlink(final_adapted, cfg.external_root / "Original")
-    log.info("symlink: external/Original -> %s", final_adapted)

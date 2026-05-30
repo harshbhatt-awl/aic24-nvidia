@@ -2,7 +2,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from ..bootstrap import ensure_dir_clean, make_symlink
 from ..config import Config
 from ..errors import ValidationError
 from ..paths import stage_dir
@@ -11,6 +10,11 @@ from .base import atomic_stage, assert_vram_free
 log = logging.getLogger(__name__)
 
 SCENE = "scene_001"
+
+
+def WIRING(run_dir: Path, cfg: Config, output_dir: Path):
+    # Expose this stage's detection output at external/Detection.
+    return [(cfg.external_root / "Detection", output_dir)]
 
 
 def _per_cam_detection_files(detect_dir: Path) -> dict[str, dict[str, str]]:
@@ -32,17 +36,9 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
 
     frames_manifest = stage_dir(run_dir, "frames") / "manifest.json"
 
-    with atomic_stage(run_dir, "detect", run_id=run_id) as ctx:
-        # Symlink external/Detection -> outputs/<run_id>/detect.tmp
-        # so upstream writes its results directly into our managed run dir.
-        # NOTE: ctx.work_dir is detect.tmp; after the stage completes, the
-        # context renames it to detect/. The symlink remains valid post-rename
-        # because we re-point it to the final dir on success (handled below).
-        det_root = cfg.external_root / "Detection"
-        ensure_dir_clean(det_root)
-        make_symlink(ctx.work_dir, det_root)
-
-        # Run YOLO11 detection via adapter
+    with atomic_stage(run_dir, "detect", run_id=run_id, cfg=cfg, wiring=WIRING) as ctx:
+        # external/Detection is wired by WIRING (output_dir during run, final
+        # after promotion) — upstream writes its results into our managed run dir.
         from ..models import detect_yolo
         original = cfg.external_root / "Original"
         scene_src = original / SCENE
@@ -73,6 +69,3 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
             "nms_iou": cfg.detect.nms_iou,
         })
         ctx.set_upstream([str(frames_manifest)])
-
-    # After atomic promotion, re-point the symlink to the final dir.
-    make_symlink(stage_dir(run_dir, "detect"), cfg.external_root / "Detection")

@@ -48,14 +48,14 @@ class StageSpec:
 
 # Ordered: list position == pipeline execution order.
 REGISTRY: tuple[StageSpec, ...] = (
-    StageSpec("adapt",    "adapted",  (),           adapt.run),
-    StageSpec("frames",   "frames",   ("adapt",),   extract_frames.run),
-    StageSpec("detect",   "detect",   ("frames",),  detect.run),
-    StageSpec("reid",     "reid",     ("detect",),  reid.run),
-    StageSpec("pose",     "pose",     ("reid",),    pose.run),
-    StageSpec("sct",      "sct",      ("pose",),    sct.run),
-    StageSpec("mct",      "mct",      ("sct",),     mct.run),
-    StageSpec("evaluate", "evaluate", ("mct",),     evaluate.run),
+    StageSpec("adapt",    "adapted",  (),           adapt.run,          adapt.WIRING),
+    StageSpec("frames",   "frames",   ("adapt",),   extract_frames.run, extract_frames.WIRING),
+    StageSpec("detect",   "detect",   ("frames",),  detect.run,         detect.WIRING),
+    StageSpec("reid",     "reid",     ("detect",),  reid.run,           reid.WIRING),
+    StageSpec("pose",     "pose",     ("reid",),    pose.run,           pose.WIRING),
+    StageSpec("sct",      "sct",      ("pose",),    sct.run,            sct.WIRING),
+    StageSpec("mct",      "mct",      ("sct",),     mct.run,            mct.WIRING),
+    StageSpec("evaluate", "evaluate", ("mct",),     evaluate.run),  # no external wiring
 )
 
 _BY_NAME = {s.name: s for s in REGISTRY}

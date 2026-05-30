@@ -4,7 +4,7 @@ import logging
 import subprocess
 from pathlib import Path
 
-from ..bootstrap import ensure_dir_clean, make_symlink, patch_scene_camera_map
+from ..bootstrap import patch_scene_camera_map
 from ..config import Config
 from ..errors import StageError, ValidationError
 from ..paths import stage_dir
@@ -36,6 +36,17 @@ def _sct_files(work_dir: Path) -> dict[str, str]:
     return out
 
 
+def WIRING(run_dir: Path, cfg: Config, output_dir: Path):
+    # Upstream infer.py (CWD=yachiyo) reads EmbedFeature/ + Detection/ and writes
+    # Tracking/. Expose this stage's output as Tracking and wire the inputs.
+    y = cfg.yachiyo_root
+    return [
+        (y / "Tracking", output_dir),
+        (y / "EmbedFeature", stage_dir(run_dir, "reid")),
+        (y / "Detection", stage_dir(run_dir, "detect")),
+    ]
+
+
 def run(cfg: Config, run_dir: Path, run_id: str) -> None:
     assert_vram_free(cfg.vram_min_free_gb)
 
@@ -55,20 +66,10 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         scene=SCENE, camera_ids=camera_ids,
     )
 
-    with atomic_stage(run_dir, "sct", run_id=run_id) as ctx:
+    with atomic_stage(run_dir, "sct", run_id=run_id, cfg=cfg, wiring=WIRING) as ctx:
         log_path = ctx.work_dir / "log.txt"
-
-        # Upstream needs Tracking/ at CWD-root (yachiyo/Tracking) and EmbedFeature/
-        # at CWD-root (yachiyo/EmbedFeature). Wire both via symlinks.
-        for name, target in (
-            ("Tracking", ctx.work_dir),
-            ("EmbedFeature", stage_dir(run_dir, "reid")),
-            ("Detection", stage_dir(run_dir, "detect")),
-        ):
-            link = yachiyo / name
-            ensure_dir_clean(link)
-            make_symlink(target, link)
-
+        # yachiyo/{Tracking,EmbedFeature,Detection} are wired by WIRING before
+        # this body runs (Tracking -> output_dir; inputs -> reid/detect finals).
         params = build_tracking_params(cfg)
         if not params:
             raise StageError("sct", 1, str(log_path))
@@ -101,5 +102,3 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
             "propagated_via": "parameters_per_scene.py",
         })
         ctx.set_upstream([str(pose_manifest)])
-
-    make_symlink(stage_dir(run_dir, "sct"), cfg.yachiyo_root / "Tracking")
