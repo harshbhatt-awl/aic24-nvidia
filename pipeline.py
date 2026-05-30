@@ -118,6 +118,11 @@ def cmd_dashboard(args) -> None:
                     "--server.port", str(args.port)], check=True)
 
 
+def cmd_menu(args) -> None:
+    from aic24_nvidia import hub
+    hub.run_hub()
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser("aic24-nvidia")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -141,6 +146,9 @@ def main(argv=None) -> int:
     dp = sub.add_parser("dashboard")
     dp.add_argument("--port", type=int, default=8501)
     dp.set_defaults(func=cmd_dashboard)
+
+    mp = sub.add_parser("menu")
+    mp.set_defaults(func=cmd_menu)
 
     args = p.parse_args(argv)
     args.func(args)

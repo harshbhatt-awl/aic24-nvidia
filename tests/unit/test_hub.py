@@ -108,3 +108,13 @@ def test_require_interactive_missing_dep_exits_with_hint(monkeypatch, capsys):
         hub._require_interactive()
     assert exc.value.code == 2
     assert 'pip install -e ".[hub]"' in capsys.readouterr().err
+
+
+def test_menu_subcommand_dispatches_to_run_hub(monkeypatch):
+    import pipeline
+    called = []
+    # cmd_menu does `from aic24_nvidia import hub; hub.run_hub()`, so patch the attr.
+    monkeypatch.setattr("aic24_nvidia.hub.run_hub", lambda: called.append(True))
+    rc = pipeline.main(["menu"])
+    assert called == [True]
+    assert rc == 0
