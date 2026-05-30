@@ -62,6 +62,7 @@ python pipeline.py all   --config configs/baseline.yaml
 python pipeline.py <stage> --config ... [--run-id <id>] [--force]
 python pipeline.py viz   --config ... --stage {detect,sct,mct}
 python pipeline.py dashboard --port 8501           # Streamlit (read-only viewer)
+python pipeline.py menu                            # interactive operations hub (needs `pip install -e ".[hub]"`)
 ```
 
 ### Experiment harness (`experiments/`)

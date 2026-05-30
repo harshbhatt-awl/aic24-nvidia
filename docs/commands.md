@@ -66,6 +66,10 @@ python pipeline.py viz --config configs/baseline.yaml --run-id baseline --stage 
 
 # Read-only Streamlit dashboard (default port 8501).
 python pipeline.py dashboard --port 8501
+
+# Interactive operations hub (arrow-key menu over pipeline/experiments/viz/dashboard).
+# Needs the optional extra: pip install -e ".[hub]"
+python pipeline.py menu
 ```
 
 ### Rebuild the locked baseline (cached detect/reid/pose reused, ~5 min)
