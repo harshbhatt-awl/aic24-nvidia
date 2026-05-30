@@ -10,13 +10,19 @@
 #   * Tracker:  YACHIYO SCPT/MCPT with sweep-tuned thresholds (see below).
 #   * World projection: RTMPose ankle-lower keypoint (planted foot) instead of
 #                       bbox-bottom-center; EMA temporal smoothing at α=0.3.
-#   * Measured: image HOTA 0.7800, IDF1 0.7670, MOTA 0.7888 (UNCHANGED from v3.1);
-#               world HOTA 0.6479, DetA 0.6549, AssA 0.6423, IDF1 0.8040, dropped ~5400.
-#   * vs v3.2 (eps_scpt=0.20): world HOTA +0.0121, DetA +0.0057, AssA +0.0183,
-#               IDF1 +0.0238 — eps_scpt 0.15 improves all four (kp3 shifted the
-#               SCT-clustering optimum down). Image plane unchanged.
+#   * Measured: world HOTA 0.6479, DetA 0.6549, AssA 0.6423, IDF1 0.8040, dropped 6347;
+#               image HOTA 0.7677, IDF1 0.7521, MOTA 0.7810.
+#   * vs v3.2 (eps_scpt=0.20): world HOTA +0.0121 (DetA +0.0057, AssA +0.0183,
+#               IDF1 +0.0238) — a deliberate WORLD↔IMAGE TRADE: image HOTA -0.0123
+#               (0.7800->0.7677). eps_scpt 0.15 is the world-HOTA peak on the kp3
+#               set and narrows the image↔world gap 0.144->0.120 (the project's
+#               headline goal). World HOTA is the priority metric, so 0.15 is
+#               chosen — same world-over-image call the project made at v3
+#               (0.30->0.20). To prefer image-plane parity, revert eps_scpt to 0.20.
 #   * vs v3.1 (kpt_cond_th=1, eps_scpt=0.20): world HOTA +0.1197 (0.5282->0.6479,
-#               +22.7% relative); the keypoint-gate opening (v3.2) is the bulk.
+#               +22.7% relative), image HOTA -0.0123. The keypoint-gate opening
+#               (v3.2, +0.1076 world at ZERO image cost) is the bulk and clean;
+#               the eps_scpt step (v3.3) is the marginal world/image trade.
 #   * vs v2 (bbox_bottom + no smoothing + eps_scpt=0.30): world HOTA +0.190.
 #
 # Tuning provenance
