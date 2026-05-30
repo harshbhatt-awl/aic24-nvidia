@@ -32,3 +32,47 @@ def test_classify_e1_takes_precedence_over_e2():
 def test_classify_g0_when_untracked():
     assert classify_track(_t(offline_id=-1, n_all_serials=-1, score=-1),
                           short_track_th=120, keypoint_condition_th=1) == G0_UNTRACKED
+
+
+import json
+from aic24_nvidia.diagnostics.linking_attribution import load_tracks
+
+
+def _write(tmp_path, whole, rep):
+    (tmp_path / "whole_tracking_results.json").write_text(json.dumps(whole))
+    (tmp_path / "representative_nodes_scene1.json").write_text(json.dumps(rep))
+    return (tmp_path / "whole_tracking_results.json",
+            tmp_path / "representative_nodes_scene1.json")
+
+
+def test_load_tracks_joins_counts_scores_and_linked(tmp_path):
+    whole = {
+        "395": {
+            "00000000": {"OfflineID": 7, "GlobalOfflineID": 14},
+            "00000001": {"OfflineID": 7, "GlobalOfflineID": 14},
+            "00000002": {"OfflineID": 8, "GlobalOfflineID": None},
+            "00000003": {"OfflineID": -1, "GlobalOfflineID": None},
+        }
+    }
+    rep = {
+        "395": {
+            "7": {"representative_node": {"score": 1}, "all_serials": ["a"] * 200},
+            "8": {"representative_node": {"score": 3}, "all_serials": ["a"] * 50},
+        }
+    }
+    wj, rj = _write(tmp_path, whole, rep)
+    tracks = {(t.camera, t.offline_id): t for t in load_tracks(wj, rj)}
+
+    assert tracks[("395", 7)].n_detections == 2
+    assert tracks[("395", 7)].n_all_serials == 200
+    assert tracks[("395", 7)].score == 1
+    assert tracks[("395", 7)].linked is True
+
+    assert tracks[("395", 8)].n_detections == 1
+    assert tracks[("395", 8)].n_all_serials == 50
+    assert tracks[("395", 8)].linked is False
+
+    # untracked detection: offline_id normalized to -1, no rep node -> (-1, -1)
+    assert tracks[("395", -1)].n_detections == 1
+    assert tracks[("395", -1)].n_all_serials == -1
+    assert tracks[("395", -1)].score == -1
