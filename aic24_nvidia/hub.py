@@ -28,10 +28,13 @@ def load_metrics(run_dir: Path) -> dict | None:
         return None
 
 
-def _mean_image_hota(metrics: dict) -> float | None:
+def _image_hota(metrics: dict) -> float | None:
+    combined = metrics.get("COMBINED")
+    if isinstance(combined, dict) and isinstance(combined.get("HOTA"), (int, float)):
+        return float(combined["HOTA"])
     vals = [
         m["HOTA"] for k, m in metrics.items()
-        if k != "mct_world" and isinstance(m, dict) and isinstance(m.get("HOTA"), (int, float))
+        if "camera_" in k and isinstance(m, dict) and isinstance(m.get("HOTA"), (int, float))
     ]
     return sum(vals) / len(vals) if vals else None
 
@@ -77,7 +80,7 @@ def discover_runs(outputs_root: Path) -> list[RunInfo]:
             run_id=d.name,
             stages_present=present,
             status=status,
-            image_hota=_mean_image_hota(metrics) if metrics else None,
+            image_hota=_image_hota(metrics) if metrics else None,
             world_hota=_world_hota(metrics) if metrics else None,
             finished_at=finished_at,
         ))
@@ -107,6 +110,8 @@ def build_experiment_cmd(action: str, experiment: str | None = None,
     """action in {'list','status','ensure-baseline','run'}."""
     cmd = [sys.executable, "experiments/run.py", action]
     if action == "run":
+        if experiment is None:
+            raise ValueError("experiment is required for action 'run'")
         cmd.append(experiment)
         if variant:
             cmd += ["--variant", variant]
@@ -128,6 +133,7 @@ def _require_interactive():
     """Import the optional interactive deps, or exit(2) with an install hint."""
     try:
         import questionary
+        import rich  # noqa: F401  (flows import rich.console/table/panel lazily)
     except ImportError as e:
         print(
             'interactive hub needs extra deps:\n  pip install -e ".[hub]"',
