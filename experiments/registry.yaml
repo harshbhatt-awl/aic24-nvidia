@@ -287,3 +287,34 @@ experiments:
         overrides:
           tracking_params:
             short_track_th: 15
+
+  - id: delete_gid_sweep
+    description: "delete_gid_th gates MCPT's delete_small_global_id step. Baseline 5000 deletes ALL global ids (max gid has 1570 dets) -> empty fixed_whole -> pipeline silently falls back to RAW uncorrected output. Lowering it (<1570) activates the corrected output (tracklet interpolation + spurious-gid pruning)."
+    hypothesis: "Activating the discarded MCPT correction (a sensible delete_gid_th) improves world AssA/DetA over the raw fallback; too-low over-prunes real ids."
+    base_config: configs/baseline.yaml
+    rerun_from: mct          # delete_gid_th is MCT-only (mcpt.delete_small_global_id); reuse cached sct
+    variants:
+      - name: "0"            # full correction, prune nothing
+        overrides:
+          tracking_params:
+            delete_gid_th: 0
+      - name: "50"
+        overrides:
+          tracking_params:
+            delete_gid_th: 50
+      - name: "100"
+        overrides:
+          tracking_params:
+            delete_gid_th: 100
+      - name: "300"
+        overrides:
+          tracking_params:
+            delete_gid_th: 300
+      - name: "800"
+        overrides:
+          tracking_params:
+            delete_gid_th: 800
+      - name: "5000"         # = baseline (correction discarded -> raw fallback)
+        overrides:
+          tracking_params:
+            delete_gid_th: 5000
