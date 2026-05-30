@@ -69,3 +69,31 @@ def test_build_pipeline_cmd_specific_stages_in_registry_order():
     assert [c[2] for c in cmds] == ["adapt", "detect"]
     assert all(c[0] == sys.executable and c[1] == "pipeline.py" for c in cmds)
     assert cmds[0][2:] == ["adapt", "--config", "c.yaml"]
+
+
+def test_build_experiment_cmd_simple_actions():
+    assert hub.build_experiment_cmd("list") == [sys.executable, "experiments/run.py", "list"]
+    assert hub.build_experiment_cmd("status") == [sys.executable, "experiments/run.py", "status"]
+
+
+def test_build_experiment_cmd_ensure_baseline_force():
+    assert hub.build_experiment_cmd("ensure-baseline", force=True) == [
+        sys.executable, "experiments/run.py", "ensure-baseline", "--force"]
+
+
+def test_build_experiment_cmd_run_with_variant_and_force():
+    assert hub.build_experiment_cmd("run", experiment="eps_mcpt_sweep",
+                                    variant="0.30", force=True) == [
+        sys.executable, "experiments/run.py", "run", "eps_mcpt_sweep",
+        "--variant", "0.30", "--force"]
+
+
+def test_build_experiment_cmd_run_all_variants():
+    assert hub.build_experiment_cmd("run", experiment="eps_mcpt_sweep") == [
+        sys.executable, "experiments/run.py", "run", "eps_mcpt_sweep"]
+
+
+def test_build_compare_cmd():
+    assert hub.build_compare_cmd() == [sys.executable, "experiments/compare.py"]
+    assert hub.build_compare_cmd("mct_world.HOTA") == [
+        sys.executable, "experiments/compare.py", "--sort-by", "mct_world.HOTA"]

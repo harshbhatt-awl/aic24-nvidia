@@ -100,3 +100,25 @@ def build_pipeline_cmd(config: Path, stages: list[str] | None,
     selected = set(stages)
     ordered = [s for s in _stage_order() if s in selected]
     return [base + [s] + common for s in ordered]
+
+
+def build_experiment_cmd(action: str, experiment: str | None = None,
+                         variant: str | None = None, force: bool = False) -> list[str]:
+    """action in {'list','status','ensure-baseline','run'}."""
+    cmd = [sys.executable, "experiments/run.py", action]
+    if action == "run":
+        cmd.append(experiment)
+        if variant:
+            cmd += ["--variant", variant]
+        if force:
+            cmd += ["--force"]
+    elif action == "ensure-baseline" and force:
+        cmd += ["--force"]
+    return cmd
+
+
+def build_compare_cmd(sort_by: str | None = None) -> list[str]:
+    cmd = [sys.executable, "experiments/compare.py"]
+    if sort_by:
+        cmd += ["--sort-by", sort_by]
+    return cmd
