@@ -25,10 +25,14 @@ class Track:
 
 
 def classify_track(track: Track, short_track_th: int, keypoint_condition_th: int) -> str:
-    """First eligibility gate the track fails, mirroring create_camera_dict.
+    """First eligibility gate the track fails, in pipeline order.
 
-    Order: untracked (OfflineID<0) -> length (len(all_serials)<short_track_th)
-    -> keypoint (score>keypoint_condition_th) -> kept.
+    E1 (length) and E2 (keypoint) mirror the gates in upstream ``create_camera_dict``.
+    G0 (untracked, OfflineID<0) is a diagnostic-added bucket that identifies SCT
+    tracks never assigned a global ID; it is not a gate in the upstream code.
+
+    Order: G0 (OfflineID<0) -> E1 (len(all_serials)<short_track_th)
+    -> E2 (score>keypoint_condition_th) -> kept.
     """
     if track.offline_id < 0:
         return G0_UNTRACKED
@@ -56,7 +60,7 @@ def load_tracks(whole_json: str | Path, rep_json: str | Path) -> list[Track]:
             rep_by[(cam, int(oid_str))] = (n_all, score)
 
     ndet: dict[tuple[str, int], int] = defaultdict(int)
-    linked: dict[tuple[str, int], bool] = defaultdict(bool)
+    linked: dict[tuple[str, int], bool] = {}
     for cam, entries in whole.items():
         if not isinstance(entries, dict):
             continue
@@ -72,7 +76,7 @@ def load_tracks(whole_json: str | Path, rep_json: str | Path) -> list[Track]:
     tracks: list[Track] = []
     for (cam, oid), n in ndet.items():
         n_all, score = rep_by.get((cam, oid), (-1, -1))
-        tracks.append(Track(cam, oid, n, n_all, score, linked[(cam, oid)]))
+        tracks.append(Track(cam, oid, n, n_all, score, linked.get((cam, oid), False)))
     return tracks
 
 
