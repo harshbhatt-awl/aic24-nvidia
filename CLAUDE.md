@@ -40,6 +40,14 @@ adapters under `aic24_nvidia/models/` that write byte-compatible output for the 
 - **pose** → **RTMPose-l** via `rtmlib` (ONNX, `pose_rtmpose.py`); 17 COCO keypoints. ONNXRuntime has
   no CUDA provider on the cu130 stack, so pose runs on **CPU** (~11 min for the 30s clip — fine).
 
+> Backends are swappable by config: `detect.model_name` / `reid.model_name` /
+> `pose.model_name` (default to the v3 stack) resolve through
+> `aic24_nvidia/models/registry.py` to a `*Backend` class implementing
+> `load/infer/teardown`. The per-kind orchestrators (`run_detection`/`run_reid`/
+> `run_pose`) keep the byte-compatible YACHIYO writers. `cfg.<stage>.weights`
+> overrides the checkpoint (resolved against `weights_root`). `load_config`
+> rejects an unknown `model_name`.
+
 > Historical: pose used to need a separate `.venv-pose` (mmpose 0.29 / Python 3.10) — **removed**; rtmlib
 > is pure ONNX so pose runs in the main `.venv`. detect dropped BoT-SORT/YOLOX; reid dropped
 > deep-person-reid/OSNet. Each adapter releases GPU memory (`del`+`empty_cache`) after its stage since
