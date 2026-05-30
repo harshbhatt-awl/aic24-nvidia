@@ -38,8 +38,6 @@ import numpy as np
 # Part B: lazy RTMPose-l model (real inference, requires ONNX runtime + GPU)
 # ---------------------------------------------------------------------------
 
-_MODEL = None
-
 # RTMPose-l body7 256×192 ONNX — openmmlab release v1 (best-effort URL).
 # rtmlib's BaseTool accepts a .zip URL and caches the extracted .onnx.
 # Source: https://github.com/open-mmlab/mmpose/tree/main/projects/rtmpose
@@ -53,50 +51,6 @@ _RTMPOSE_L_URL = (
 
 # Verified rtmlib-registered fallback (RTMPose-m body7 256x192) if the -l URL 404s at smoke time:
 _RTMPOSE_M_FALLBACK_URL = "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/rtmpose-m_simcc-body7_pt-body7_420e-256x192-e48f03d0_20230504.zip"
-
-
-def _estimate(img, bboxes):
-    """RTMPose-l top-down pose estimation (Part B — GPU/ONNX).
-
-    Args:
-        img:    BGR np.ndarray (H, W, 3) — as returned by cv2.imread.
-        bboxes: list of [x1, y1, x2, y2] (ints or floats, xyxy format).
-
-    Returns:
-        List of N lists, each containing 17 [x, y, score] triplets
-        in COCO ordering (0=nose … 16=right_ankle).
-
-    Notes:
-        • _MODEL is loaded lazily on first call.
-        • BEST-EFFORT: _RTMPOSE_L_URL has not been validated in this session;
-          it follows the naming pattern from rtmlib's Body.MODE registry.
-          Confirm during GPU smoke run. If the -l URL 404s, switch to
-          _RTMPOSE_M_FALLBACK_URL.
-        • bboxes may contain int or float values; they are cast to float32
-          internally via np.array(bboxes, dtype=np.float32).
-    """
-    global _MODEL
-    if _MODEL is None:
-        import torch  # type: ignore
-        from rtmlib import RTMPose  # type: ignore
-        _device = "cuda" if torch.cuda.is_available() else "cpu"
-        _MODEL = RTMPose(
-            onnx_model=_RTMPOSE_L_URL,
-            model_input_size=(192, 256),  # (W, H) = 192×256
-            backend="onnxruntime",
-            device=_device,
-        )
-
-    # RTMPose.__call__ expects bboxes as a list of [x1,y1,x2,y2] and returns:
-    #   keypoints: np.ndarray shape (N, 17, 2)  — (x, y) pixel coords
-    #   scores:    np.ndarray shape (N, 17)      — per-keypoint confidence
-    keypoints, scores = _MODEL(img, bboxes=np.array(bboxes, dtype=np.float32))
-
-    out = []
-    for kp, sc in zip(keypoints, scores):
-        # kp: (17, 2), sc: (17,)
-        out.append([[float(x), float(y), float(s)] for (x, y), s in zip(kp, sc)])
-    return out
 
 
 class RTMPoseBackend:
@@ -138,94 +92,57 @@ class RTMPoseBackend:
             pass
 
 
-def _release_gpu():
-    global _MODEL
-    _MODEL = None
-    import gc
-    gc.collect()
-    try:
-        import torch  # type: ignore
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-    except ImportError:
-        pass
-
-
 # ---------------------------------------------------------------------------
-# Part A: format-writing logic (fully tested, estimate is injectable)
+# Part A: format-writing logic
 # ---------------------------------------------------------------------------
 
-def run_pose(
-    det_scene_dir,
-    original_scene_dir,
-    pose_out_dir,
-    scene: str,
-    cams: list[str],
-    estimate=None,
-) -> None:
-    """Run RTMPose-l top-down pose estimation for all cameras in a scene.
+def run_pose(det_scene_dir, original_scene_dir, pose_out_dir, scene, cams,
+             cfg, weights_root, backend=None):
+    """Run top-down pose estimation for all cameras in a scene.
 
-    Args:
-        det_scene_dir:      Path to Detection/<scene>/ (contains <cam>.txt).
-        original_scene_dir: Path to Original/<scene>/ (contains <cam>/Frame/*.jpg).
-        pose_out_dir:       Root output dir; JSON written to
-                            <pose_out_dir>/<scene>/<cam>/<cam>_out_keypoint.json.
-        scene:              Scene name string.
-        cams:               List of camera name strings.
-        estimate:           Callable(img_bgr, bboxes) → list-of-17-kpt-lists.
-                            When None, uses the module-global _estimate (looked
-                            up at call time so monkeypatching the global works).
+    backend: a PoseBackend. When None, resolved from cfg.model_name. Inject a
+             fake in tests.
     """
     import cv2  # type: ignore
 
-    # Look up the module-global at call time so monkeypatching _estimate works.
-    if estimate is None:
-        estimate = _estimate
+    if backend is None:
+        from .registry import get_pose
+        backend = get_pose(cfg.model_name)
+    backend.load(cfg, weights_root)
+    try:
+        det_scene_dir = Path(det_scene_dir)
+        for cam in cams:
+            det_path = det_scene_dir / f"{cam}.txt"
+            dets = np.genfromtxt(det_path, dtype=str, delimiter=",")
 
-    det_scene_dir = Path(det_scene_dir)
+            out_dir = Path(pose_out_dir) / scene / cam
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_path = out_dir / f"{cam}_out_keypoint.json"
 
-    for cam in cams:
-        det_path = det_scene_dir / f"{cam}.txt"
-        dets = np.genfromtxt(det_path, dtype=str, delimiter=",")
+            if dets.ndim == 1 and dets.shape[0] == 0:
+                with open(out_path, "w") as f:
+                    json.dump({}, f)
+                continue
 
-        out_dir = Path(pose_out_dir) / scene / cam
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{cam}_out_keypoint.json"
+            if dets.ndim == 1:
+                dets = dets.reshape(1, -1)
 
-        if dets.ndim == 1 and dets.shape[0] == 0:
-            # Empty detection file — write empty JSON.
+            by_frame: dict[int, list[tuple[int, int, int, int]]] = defaultdict(list)
+            for (_c, frame, _cls, x1, y1, x2, y2, _conf) in dets:
+                by_frame[int(frame)].append((int(x1), int(y1), int(x2), int(y2)))
+
+            save: dict[str, list] = {}
+            for frame_id in sorted(by_frame):
+                img_path = Path(original_scene_dir) / cam / "Frame" / f"{frame_id:06d}.jpg"
+                img = cv2.imread(str(img_path))
+                bboxes_int = list(by_frame[frame_id])
+                kpts = backend.estimate(img, bboxes_int)
+                people = []
+                for (x1, y1, x2, y2), kp in zip(bboxes_int, kpts):
+                    people.append({"bbox": [x1, y1, x2, y2, 1.0], "keypoints": kp})
+                save[str(frame_id)] = people
+
             with open(out_path, "w") as f:
-                json.dump({}, f)
-            continue
-
-        if dets.ndim == 1:
-            # Single detection row — genfromtxt returns shape (ncols,); reshape.
-            dets = dets.reshape(1, -1)
-
-        # Group detections by frame.
-        by_frame: dict[int, list[tuple[int, int, int, int]]] = defaultdict(list)
-        for (_c, frame, _cls, x1, y1, x2, y2, _conf) in dets:
-            by_frame[int(frame)].append((int(x1), int(y1), int(x2), int(y2)))
-
-        save: dict[str, list] = {}
-        for frame_id in sorted(by_frame):
-            img_path = (
-                Path(original_scene_dir) / cam / "Frame" / f"{frame_id:06d}.jpg"
-            )
-            img = cv2.imread(str(img_path))
-
-            bboxes_int = list(by_frame[frame_id])  # list of (x1,y1,x2,y2) ints
-
-            kpts = estimate(img, bboxes_int)
-
-            people = []
-            for (x1, y1, x2, y2), kp in zip(bboxes_int, kpts):
-                people.append({
-                    "bbox": [x1, y1, x2, y2, 1.0],
-                    "keypoints": kp,
-                })
-            save[str(frame_id)] = people
-
-        with open(out_path, "w") as f:
-            json.dump(save, f)
-    _release_gpu()
+                json.dump(save, f)
+    finally:
+        backend.teardown()

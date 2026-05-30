@@ -2,9 +2,23 @@ import json
 import numpy as np
 from PIL import Image
 from aic24_nvidia.models import pose_rtmpose
+from aic24_nvidia.config import PoseCfg
 
 
-def test_pose_json_schema_and_bbox_keys(tmp_path, monkeypatch):
+def _fake_pose(estimate_fn):
+    class FakePose:
+        def load(self, cfg, weights_root):
+            pass
+
+        def estimate(self, img, bboxes):
+            return estimate_fn(img, bboxes)
+
+        def teardown(self):
+            pass
+    return FakePose()
+
+
+def test_pose_json_schema_and_bbox_keys(tmp_path):
     scene, cam = "scene_001", "camera_0390"
     det_dir = tmp_path / "Detection" / scene
     det_dir.mkdir(parents=True)
@@ -15,11 +29,11 @@ def test_pose_json_schema_and_bbox_keys(tmp_path, monkeypatch):
     Image.new("RGB", (1920, 1080)).save(frame_dir / "000001.jpg")
     pose_out = tmp_path / "Pose"
 
-    monkeypatch.setattr(pose_rtmpose, "_estimate",
-                        lambda img, bboxes: [[[1.0, 2.0, 0.9]] * 17 for _ in bboxes])
-    pose_rtmpose.run_pose(det_scene_dir=det_dir,
-                          original_scene_dir=tmp_path / "Original" / scene,
-                          pose_out_dir=pose_out, scene=scene, cams=[cam])
+    pose_rtmpose.run_pose(
+        det_scene_dir=det_dir, original_scene_dir=tmp_path / "Original" / scene,
+        pose_out_dir=pose_out, scene=scene, cams=[cam],
+        cfg=PoseCfg(keypoint_conf=0.3), weights_root=tmp_path / "weights",
+        backend=_fake_pose(lambda img, bboxes: [[[1.0, 2.0, 0.9]] * 17 for _ in bboxes]))
 
     out = pose_out / scene / cam / f"{cam}_out_keypoint.json"
     j = json.loads(out.read_text())
@@ -30,18 +44,18 @@ def test_pose_json_schema_and_bbox_keys(tmp_path, monkeypatch):
     assert j["1"][0]["keypoints"][0] == [1.0, 2.0, 0.9]
 
 
-def test_empty_detection_file_writes_empty_json(tmp_path, monkeypatch):
+def test_empty_detection_file_writes_empty_json(tmp_path):
     scene, cam = "scene_001", "camera_0390"
     det_dir = tmp_path / "Detection" / scene
     det_dir.mkdir(parents=True)
     (det_dir / f"{cam}.txt").write_text("")
     pose_out = tmp_path / "Pose"
 
-    monkeypatch.setattr(pose_rtmpose, "_estimate",
-                        lambda img, bboxes: [[[0.0, 0.0, 0.5]] * 17 for _ in bboxes])
-    pose_rtmpose.run_pose(det_scene_dir=det_dir,
-                          original_scene_dir=tmp_path / "Original" / scene,
-                          pose_out_dir=pose_out, scene=scene, cams=[cam])
+    pose_rtmpose.run_pose(
+        det_scene_dir=det_dir, original_scene_dir=tmp_path / "Original" / scene,
+        pose_out_dir=pose_out, scene=scene, cams=[cam],
+        cfg=PoseCfg(keypoint_conf=0.3), weights_root=tmp_path / "weights",
+        backend=_fake_pose(lambda img, bboxes: [[[0.0, 0.0, 0.5]] * 17 for _ in bboxes]))
 
     out = pose_out / scene / cam / f"{cam}_out_keypoint.json"
     assert out.exists()
@@ -49,7 +63,7 @@ def test_empty_detection_file_writes_empty_json(tmp_path, monkeypatch):
     assert j == {}
 
 
-def test_single_detection_row(tmp_path, monkeypatch):
+def test_single_detection_row(tmp_path):
     scene, cam = "scene_001", "camera_0390"
     det_dir = tmp_path / "Detection" / scene
     det_dir.mkdir(parents=True)
@@ -59,11 +73,11 @@ def test_single_detection_row(tmp_path, monkeypatch):
     Image.new("RGB", (1920, 1080)).save(frame_dir / "000003.jpg")
     pose_out = tmp_path / "Pose"
 
-    monkeypatch.setattr(pose_rtmpose, "_estimate",
-                        lambda img, bboxes: [[[0.0, 0.0, 0.5]] * 17 for _ in bboxes])
-    pose_rtmpose.run_pose(det_scene_dir=det_dir,
-                          original_scene_dir=tmp_path / "Original" / scene,
-                          pose_out_dir=pose_out, scene=scene, cams=[cam])
+    pose_rtmpose.run_pose(
+        det_scene_dir=det_dir, original_scene_dir=tmp_path / "Original" / scene,
+        pose_out_dir=pose_out, scene=scene, cams=[cam],
+        cfg=PoseCfg(keypoint_conf=0.3), weights_root=tmp_path / "weights",
+        backend=_fake_pose(lambda img, bboxes: [[[0.0, 0.0, 0.5]] * 17 for _ in bboxes]))
 
     out = pose_out / scene / cam / f"{cam}_out_keypoint.json"
     j = json.loads(out.read_text())
