@@ -22,49 +22,6 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-_MODEL = None
-_TRANSFORM = None
-
-
-def _get_transform():
-    global _TRANSFORM
-    if _TRANSFORM is None:
-        import torchvision.transforms as T  # type: ignore
-        from aic24_nvidia.models.solider import SOLIDER_SIZE, SOLIDER_MEAN, SOLIDER_STD
-
-        _TRANSFORM = T.Compose([
-            T.Resize(list(SOLIDER_SIZE)),
-            T.ToTensor(),
-            T.Normalize(mean=list(SOLIDER_MEAN), std=list(SOLIDER_STD)),
-        ])
-    return _TRANSFORM
-
-
-def _embed(crop: Image.Image) -> np.ndarray:
-    """Embed a PIL crop → 1-D float32 vector via SOLIDER Swin-Small (Part B).
-
-    Lazily loads the model on first call from weights/solider_swin_small.pth.
-    Raises NotImplementedError if the weights file is absent (see
-    aic24_nvidia/models/solider/__init__.py for download instructions).
-    """
-    import torch
-
-    global _MODEL
-    if _MODEL is None:
-        from aic24_nvidia.models.solider import load_solider_swin_small
-
-        _weights = Path(__file__).parent.parent.parent / "weights" / "solider_swin_small.pth"
-        _MODEL = load_solider_swin_small(_weights)
-        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        _MODEL.eval().to(dev)
-
-    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    x = _get_transform()(crop.convert("RGB")).unsqueeze(0).to(dev)
-    with torch.no_grad():
-        feat = _MODEL(x)
-    return feat.cpu().numpy()[0].astype(np.float32)
-
-
 class SoliderReID:
     """Default ReIDBackend: SOLIDER Swin-Small, 768-d embeddings.
 
@@ -117,7 +74,7 @@ def extract_camera(
     emb_out_dir,
     scene: str,
     cam: str,
-    embed=None,
+    embed,
 ) -> None:
     """Extract and save ReID embeddings for one camera.
 
@@ -131,12 +88,6 @@ def extract_camera(
                             module-global _embed (lazy SOLIDER loader).  Pass explicitly to
                             inject a mock during testing.
     """
-    # NOTE: we use the PASSED embed callable directly (not the global) so that
-    # monkeypatching reid_solider._embed and then passing reid_solider._embed as
-    # the embed argument both work correctly.
-    if embed is None:
-        embed = _embed
-
     det_scene_dir = Path(det_scene_dir)
     dets = np.genfromtxt(det_scene_dir / f"{cam}.txt", dtype=str, delimiter=",")
     if dets.ndim == 1 and dets.shape[0] == 0:
@@ -184,23 +135,20 @@ def extract_camera(
         json.dump(jf, f, ensure_ascii=False)
 
 
-def _release_gpu():
-    global _MODEL
-    _MODEL = None
-    import gc, torch
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+def run_reid(det_scene_dir, original_scene_dir, emb_out_dir, scene, cams,
+             cfg, weights_root, backend=None):
+    """Run ReID embedding extraction for all cameras in a scene.
 
-
-def run_reid(
-    det_scene_dir,
-    original_scene_dir,
-    emb_out_dir,
-    scene: str,
-    cams: list[str],
-) -> None:
-    """Run ReID embedding extraction for all cameras in a scene."""
-    for cam in cams:
-        extract_camera(det_scene_dir, original_scene_dir, emb_out_dir, scene, cam)
-    _release_gpu()
+    backend: a ReIDBackend. When None, resolved from cfg.model_name. Inject a
+             fake in tests.
+    """
+    if backend is None:
+        from .registry import get_reid
+        backend = get_reid(cfg.model_name)
+    backend.load(cfg, weights_root)
+    try:
+        for cam in cams:
+            extract_camera(det_scene_dir, original_scene_dir, emb_out_dir,
+                           scene, cam, embed=backend.embed)
+    finally:
+        backend.teardown()
