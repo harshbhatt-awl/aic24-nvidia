@@ -51,6 +51,8 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
             pose_out_dir=ctx.work_dir,
             scene=SCENE,
             cams=cams,
+            cfg=cfg.pose,
+            weights_root=cfg.weights_root,
         )
 
         pose_files = _per_cam_pose_files(ctx.work_dir)
@@ -63,6 +65,6 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         ctx.set_outputs(pose_files)
         ctx.set_params({
             "keypoint_conf": cfg.pose.keypoint_conf,
-            "model": "rtmpose-l",
+            "model": cfg.pose.model_name,
         })
         ctx.set_upstream([str(reid_manifest)])

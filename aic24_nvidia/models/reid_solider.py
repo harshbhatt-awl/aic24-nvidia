@@ -84,9 +84,9 @@ def extract_camera(
         emb_out_dir:        Root output dir; files written to <emb_out_dir>/<scene>/<cam>/.
         scene:              Scene name string (used in NpyPath values).
         cam:                Camera name string (e.g. "camera_0390").
-        embed:              Callable(PIL.Image) → np.ndarray[float32].  When None, uses the
-                            module-global _embed (lazy SOLIDER loader).  Pass explicitly to
-                            inject a mock during testing.
+        embed:              Callable(PIL.Image) → np.ndarray[float32], the per-crop
+                            embedder (e.g. a ReIDBackend.embed). Required; pass a
+                            mock to inject during testing.
     """
     det_scene_dir = Path(det_scene_dir)
     dets = np.genfromtxt(det_scene_dir / f"{cam}.txt", dtype=str, delimiter=",")

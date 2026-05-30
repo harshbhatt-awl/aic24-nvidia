@@ -47,9 +47,8 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
             scene_dir=scene_src,
             det_out_dir=ctx.work_dir,
             cams=cams,
-            conf_thresh=cfg.detect.conf_thresh,
-            nms_iou=cfg.detect.nms_iou,
-            weights="yolo11x.pt",
+            cfg=cfg.detect,
+            weights_root=cfg.weights_root,
         )
 
         det_files = _per_cam_detection_files(ctx.work_dir)
@@ -64,7 +63,7 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         ctx.set_inputs({"frames_manifest": str(frames_manifest)})
         ctx.set_outputs(det_files)
         ctx.set_params({
-            "model": "yolo11x",
+            "model": cfg.detect.model_name,
             "conf_thresh": cfg.detect.conf_thresh,
             "nms_iou": cfg.detect.nms_iou,
         })

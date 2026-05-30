@@ -45,6 +45,8 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
             emb_out_dir=ctx.work_dir,
             scene=SCENE,
             cams=cams,
+            cfg=cfg.reid,
+            weights_root=cfg.weights_root,
         )
 
         counts = _per_cam_feature_counts(ctx.work_dir)
@@ -58,7 +60,7 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         ctx.set_inputs({"detect_manifest": str(detect_manifest)})
         ctx.set_outputs({"per_cam_feature_counts": counts})
         ctx.set_params({
-            "model": "solider_swin_small",
+            "model": cfg.reid.model_name,
             "similarity_thresh": cfg.reid.similarity_thresh,
         })
         ctx.set_upstream([str(detect_manifest)])
