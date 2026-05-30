@@ -1,261 +1,166 @@
 # MCT linking attribution → targeted fix
 
 **Date:** 2026-05-31
-**Branch:** TBD (suggest `feat/linking-attribution` once execution starts)
-**Status:** approved design, pending execution
+**Branch:** `feat/linking-attribution`
+**Status:** approved design (gate model verified exact), pending implementation plan
 **Priority metric:** world HOTA (v3.1 baseline = **0.5282**)
-**Supersedes the framing of:** `docs/superpowers/specs/2026-05-28-reid-fine-tune-design.md`
-(that spec is now the **conditional L1 branch** of this workstream, not the default)
+**Reframes:** `docs/superpowers/specs/2026-05-28-reid-fine-tune-design.md` (that spec
+is an **association-axis** workstream — it improves link *quality* among kept
+detections; it does **not** reduce the dropped count, see below)
 **Reads against:** `pipeline-state.md`, `detector-recall-workstream-paused.md`,
-`reid-finetune-workstream-spec.md` memories
+`reid-finetune-workstream-spec.md`, `linking-attribution-workstream-spec.md` memories
 
 ## Goal
 
-Recover world-HOTA by fixing the cross-camera **linking** stage, which today
-discards ~55% of all detections. Phase 0 attributes the loss to a specific gate;
-Phase 1 fixes the dominant gate(s). Ship a Phase 1 fix when it gains **≥ +0.02
-world HOTA** over the v3.1 baseline (0.5282).
+Recover world-HOTA by reducing the ~55% of detections that the cross-camera
+linking stage drops. Phase 0 attributes the loss to specific MCPT gates (done —
+exact, below); Phase 1 sweeps the two threshold gates that cause it. Ship a Phase 1
+fix when it gains **≥ +0.02 world HOTA** over the v3.1 baseline (0.5282) without
+regressing AssA.
 
 ## Why linking, not detection (verified 2026-05-31)
 
 The world metric loses **16,421 of 29,843 detections (55%)** at linking, and the
 loss is **100% a linking failure** — every dropped detection has a valid
 `WorldCoordinate` but a null `GlobalOfflineID` (detected *and* posed, then never
-linked). Zero are dropped for detection or pose failures.
-
-Per-camera detections lost at linking:
-
-| Camera | Detections | Linked | Lost at linking | % lost |
-|---|---|---|---|---|
-| 0390 | 6501 | 4096 | 2405 | 37% |
-| 0391 | 4262 | 1661 | 2601 | 61% |
-| 0392 | 6493 | 4235 | 2258 | 35% |
-| 0393 | 6061 | 2883 | 3178 | 52% |
-| 0394 | 3328 | 327 | 3001 | **90%** |
-| 0395 | 2918 | 220 | 2698 | **92%** |
-| 0396 | 280 | 0 | 280 | **100%** |
-| **ALL** | **29843** | **13422** | **16421** | **55%** |
+linked). Zero are dropped for detection or pose failures. The detector-recall
+workstream was deprioritized on this same evidence
+(`detector-recall-workstream-paused.md`): camera 0394 has 92% detection recall yet
+only ~10% of its detections link.
 
 (Verified via `outputs/baseline/mct/scene_001/whole_tracking_results.json` +
-`aic24_nvidia/world_tracks.py:27` drop logic.) The detector-recall workstream was
-deprioritized on the same evidence (`detector-recall-workstream-paused.md` VERDICT
-2026-05-31): camera 0394 has 92% detection recall yet only ~10% of its detections
-link — detection quality does not control linking.
+`aic24_nvidia/world_tracks.py:27` drop logic.)
 
-## What the sweep evidence already rules out
+## The exact drop model (verified 2026-05-31)
 
-From the v3-era tracker sweeps (`outputs/{sim_th_sweep,eps_mcpt_sweep}__*`):
+A detection is **kept** (gets a `GlobalOfflineID`) **if and only if** its SCT track
+passes BOTH eligibility gates in `create_camera_dict`
+(`external/AIC24_Track1_YACHIYO_RIIPS/tracking/src/mcpt.py` ~`:300-320`). Verified
+exactly: `eligible_dets == kept_dets` for every camera; `kept = 13,422`;
+zero eligible-but-unlinked, zero ineligible-but-linked. The full 16,421 dropped
+decompose with no residual:
 
-- **`sim_th` is inert.** 0.75 / 0.85 / 0.92 → *bit-identical* world HOTA
-  (0.505504), DetA, AssA, dropped. The reid cosine *threshold* does not bind.
-- **`eps_mcpt` binds** world HOTA (0.428 → 0.505 → 0.480) but **does not change the
-  dropped count** (constant 16604).
-- Therefore **whether a detection links at all is decided upstream of both
-  `sim_th` and `eps_mcpt`** — at the eligibility gates below.
+| Gate | What it is | Dropped dets | Share |
+|---|---|---|---|
+| **E2 — keypoint quality** | rep-node `score > keypoint_condition_th` (baseline **1**) → excluded | **12,126** | **74%** |
+| **E1 — track length** | `len(all_serials) < short_track_th` (baseline 120) → excluded | **4,254** | 26% |
+| **G0 — untracked** | detection's `OfflineID` is `-1`/None (SCT never tracked it) | 41 | 0.3% |
+| **(kept)** | passes E1 ∧ E2 → assigned a GlobalOfflineID | 13,422 | — |
 
-This is the central correction to the 2026-05-28 reid spec, whose hypothesis was
-"fine-tune reid to push cosine margin past `sim_th=0.85`." `sim_th` never fires,
-and the bulk of the loss happens *before* appearance matching even runs. A reid
-fine-tune is justified only if Phase 0 shows the **L1 (appearance)** gate is the
-dominant residual — not before.
+**Per-camera E1/E2 dropped detections** (baseline `short_track_th=120`,
+`keypoint_condition_th=1`):
 
-## The linking gates (verified against upstream MCPT code)
+| Camera | kept | E1 (len) | E2 (keypoint) |
+|---|---|---|---|
+| 0390 | 4096 | 868 | 1530 |
+| 0391 | 1661 | 867 | 1732 |
+| 0392 | 4235 | 596 | 1656 |
+| 0393 | 2883 | 459 | 2715 |
+| 0394 | 327 | 514 | 2467 |
+| 0395 | 220 | 880 | 1816 |
+| 0396 | 0 | 70 | 210 |
+| **ALL** | **13422** | **4254** | **12126** |
 
-Source: `external/AIC24_Track1_YACHIYO_RIIPS/tracking/src/mcpt.py`. A track gets a
-`GlobalOfflineID` only if it (a) passes BOTH eligibility gates in
-`create_camera_dict`, then (b) joins a cross-camera cluster. Four gates, in order:
+**The keypoint-quality gate (E2) is the dominant cause of the entire linking loss
+(74%)** — and it was invisible to the 2026-05-28 reid spec. The track-length gate
+(E1) is second (26%).
 
-- **E1 — eligibility: track length** (`create_camera_dict`, `mcpt.py:312`):
-  `len(all_serials) < short_track_th` → excluded. `all_serials` is the rep-node's
-  serial list (≈ the track's detection count). Baseline `short_track_th=120`.
-- **E2 — eligibility: keypoint quality** (`create_camera_dict`, `mcpt.py:317`):
-  representative-node `score > keypoint_condition_th` → excluded. Baseline
-  `keypoint_condition_th=1`, so any track whose representative pose score is 2/3/4
-  is dropped. **This gate was missed by the 2026-05-28 spec.**
-- **L1 — link: appearance** (`mcpt.py:224`+): cosine similarity matrix over the
-  eligible rep nodes; `similarity_matrix[similarity_matrix < (1-eps_mcpt)] = 0`
-  (baseline `eps_mcpt=0.37` → edges below cosine 0.63 cut), then hierarchical
-  clustering at `eps_mcpt`.
-- **L2 — link: world distance** (`replace_similarity`, `mcpt.py:228`): eligible
-  pairs farther apart than `distance_th` (baseline 10 m, `distance_type=min`) have
-  their similarity overwritten to `replace_value` (cannot-link). Calibration-
-  dependent.
+## Two distinct improvement axes (do not conflate)
 
-(`sim_th` participates only in a later leftover-assignment path that this scene
-does not exercise — consistent with its measured inertness.)
+The probe showed the dropped count is a function of *only* the two eligibility
+thresholds. The other MCPT knobs operate on a different axis:
 
-## Gate taxonomy (what Phase 0 measures)
+- **Coverage axis — reduces drops, raises world DetA/recall.** `keypoint_condition_th`
+  (E2) and `short_track_th` (E1). Raising/lowering them admits more tracks into the
+  kept set. **This is the Phase 1 lever** (it attacks 100% of the drops).
+- **Association axis — link *quality* among the kept, raises AssA/IDF1, does NOT
+  change drops.** `eps_mcpt` (clustering), `distance_th` (world cannot-link), and
+  reid embedding quality (the 2026-05-28 fine-tune). Verified: `eps_mcpt` swings
+  world HOTA via AssA (0.428→0.505→0.480) while the dropped count stays constant
+  (16604); `sim_th` is fully inert.
 
-Each of the 16,421 unlinked detections is attributed to the **first** gate that
-excluded its track, in pipeline order **E1 → E2 → L1 → L2**:
+The reid fine-tune is an **association-axis** workstream. It cannot recover the
+16,421 dropped detections — it can only re-cluster the 13,422 already kept. So it
+is pursued only as a *second* lever, after the coverage axis, if AssA among the
+(enlarged) kept set is the residual limiter.
 
-- **E1** — track shorter than `short_track_th` (fragmentation / threshold).
-- **E2** — representative keypoint score exceeds `keypoint_condition_th` (pose
-  quality / threshold).
-- **L1** — eligible, but appearance never clusters cross-camera (reid / `eps_mcpt`).
-- **L2** — eligible and appearance-matchable, but world-distance override blocks
-  (calibration / `distance_th`).
-- **linked** (sanity) — must reconcile to 13,422.
+## Phase 0 — Linking Attribution Probe (DONE in design; productionize as a script)
 
-### Preliminary signal (offline, from `representative_nodes_scene1.json`)
+**Offline and exact — no instrumentation, no pipeline re-run.** Inputs:
+`outputs/baseline/mct/scene_001/{representative_nodes_scene1.json (all_serials +
+score per track), whole_tracking_results.json (per-detection OfflineID +
+GlobalOfflineID)}`.
 
-A first-pass eligibility rollup (E1 then E2 precedence; L1/L2 not yet split) over
-the rep-node `all_serials`/`score` fields, baseline `short_track_th=120`,
-`keypoint_condition_th=1`:
+**Method:** join tracks on `(camera, OfflineID)`; classify each track by the first
+gate it fails in pipeline order — `OfflineID<0 → G0`, else
+`len(all_serials) < short_track_th → E1`, else `score > keypoint_condition_th → E2`,
+else `kept`; weight by the track's detection count from
+`whole_tracking_results.json`. Reconcile: `E1 + E2 + G0` must equal the
+null-`GlobalOfflineID` count (16,421) and `kept` must equal 13,422.
 
-| Camera | rep-dets | excl E1 (len) | excl E2 (keypoint) | pass to clustering |
-|---|---|---|---|---|
-| 0390 | ~6494 | 868 | (large) | majority |
-| 0394 | ~3308 | 514 | ~1276+ | ~1518 |
-| 0395 | ~2916 | 880 | ~1410+ | **~626 (21%)** |
-| 0396 | ~280 | 70 | small | ~210 (then 100% lost at L1/L2) |
+**Deliverables:** the per-camera × per-gate table above (regenerated from current
+baseline), a per-camera keypoint-score histogram (how E2 scales with pose quality),
+and the verdict (E2 dominant, then E1). Shipped as a reusable, tested module so the
+same attribution reruns on any variant's `outputs/<run>/mct/`.
 
-So the loss is a **mix**: on the back cams 0394/0395 the **eligibility gates
-(E1+E2) dominate** (E2 — keypoint quality — often larger than E1), while 0396
-passes eligibility but loses everything at L1/L2. Front cams pass most of
-eligibility and lose a smaller residual at L1/L2. These offline numbers are
-directional; Phase 0 produces the exact per-gate detection counts.
+## Phase 1 — coverage-axis sweep (the fix attempt)
 
-## Phase 0 — Linking Attribution Probe
+Three of the relevant knobs are pure `tracking_params` thresholds with cheap
+`rerun_from: sct` sweeps (per the registry convention — `tracking_params.* → sct`;
+detect/reid/pose are reused, so each variant is minutes). Add one experiment block
+to `experiments/registry.yaml`:
 
-**Environment:** local `.venv`, **no GPU training**, hours not days.
+- **`keypoint_condition_th`**: 1 (baseline) → 2 → 3 → 4. Targets E2 (74% of drops).
+- **`short_track_th`**: 120 (baseline) → 60 → 30 → 15. Targets E1 (26% of drops).
+- A small cross-product of the best of each, if singly-swept winners don't reach the
+  bar.
 
-**Method — instrumentation-primary (corrected from offline-first).** The
-eligibility/linking logic has four interacting gates with subtle inputs
-(`len(all_serials)`, keypoint `score`, the cosine-cut + hierarchical clustering,
-the world-distance override). Faithful offline reconstruction is error-prone, so
-the source of truth is a single instrumented MCT run:
+Run the probe (Phase 0) on each variant to confirm the gate it targets actually
+admitted the expected detections, and read world HOTA / AssA / DetA from each
+variant's `metrics.json`.
 
-1. **Instrument `mcpt.py`** (probe-only patch, NOT committed as an upstream
-   patch): at each gate emit one log row per track —
-   `(camera_id, local_id, n_serials, kp_score, max_cross_cam_cosine,
-   min_cross_cam_world_dist, outcome ∈ {E1,E2,L1,L2,linked})`.
-2. **Re-run MCT + evaluate only** (`python pipeline.py mct ...` then `evaluate`;
-   SCT cached, ~minutes).
-3. **Roll up** the log to detections-per-gate-per-camera (weight each track by its
-   detection count), reconciling the `linked` total to 13,422 and the four gate
-   totals to 16,421.
-4. **Offline cross-check**: recompute E1/E2 from `representative_nodes_scene1.json`
-   (exact) and confirm they match the instrumented E1/E2.
+**Guardrail / why this isn't a free win:** the E2-excluded tracks have *poor*
+keypoint/pose quality (score 2–4) and E1-excluded tracks are short/fragmented.
+Admitting them raises DetA but can inject noisy world points that *lower* precision
+and AssA — net world HOTA may not rise. The +0.02 bar and an AssA-non-regression
+check are the decision gate.
 
-**Deliverables:**
+## Decision rule
 
-- A per-camera × per-gate (E1/E2/L1/L2/linked) detection-count table covering all
-  16,421 unlinked detections, back cams (0394/0395/0396) called out, reconciled to
-  the totals above.
-- An SCT-fragmentation summary: per-camera track count and length histogram, and
-  for short tracks whether their gaps fall in frames that *had* detections
-  (association failure) vs *lacked* them (detection sparsity). The 2026-05-31
-  adversarial check found 73.8% of 0395 SCT-gap frames have ≥2 detections at
-  conf 0.5 — confirm/quantify per camera.
-- A keypoint-score distribution per camera (how E2 exclusion scales with pose
-  quality), since E2 is the newly-surfaced suspect.
-- A one-paragraph verdict naming the dominant gate(s) and the Phase 1 branch(es).
-
-**Artifacts to read:** `outputs/baseline/mct/scene_001/{camera{NNN}_tracking_results.json
-(pre-global-assignment SCT-staged; carry no GlobalOfflineID),
-representative_nodes_scene1.json (rep nodes with all_serials + score),
-whole_tracking_results.json (post-assignment)}`,
-`aic24_nvidia/world_tracks.py`, and the MCPT source above. Probe code lives in
-`scripts/` (e.g. `scripts/linking_attribution.py`), not in the shipped package.
-
-## Decision tree → Phase 1
-
-Attribute by detection count, tackle the **largest gate first**, re-measure, then
-re-attribute the residual (gates unmask one another — admitting more tracks at E1
-may expose L1 for them). Every branch carries the +0.02 world-HOTA ship bar.
-
-### Cheap pre-check FIRST (before any model/calibration work)
-
-Three of the four gates are pure `tracking_params` thresholds with
-seconds-per-variant `rerun_from: mct` sweeps. Run a coarse grid as the first
-action of *any* branch — it may capture most of the win for near-zero cost:
-
-- `keypoint_condition_th`: 1 → 2 → 3 (admits lower-pose-quality tracks; targets E2)
-- `short_track_th`: 120 → 60 → 30 (admits shorter tracks; targets E1)
-- `eps_mcpt`: re-tune around 0.37 (targets L1)
-- `distance_th`: 10 → 15 → 20 (loosens world cannot-link; targets L2)
-
-Add these as `experiments/registry.yaml` blocks, `rerun_from: mct`. Guardrail:
-loosening thresholds can admit false links and *drop* AssA/world HOTA — the +0.02
-bar and per-camera global-ID sanity catch that.
-
-### Branch E1 — SCT length / fragmentation
-
-If short tracks dominate after the threshold sweep: reduce SCT fragmentation
-(`epsilon_scpt` re-tune; track gap-filling/interpolation — note upstream patch #3
-already touches `interpolate_tracklet`). Local, GPU-free.
-
-### Branch E2 — keypoint quality
-
-If the keypoint gate dominates and raising `keypoint_condition_th` alone over-admits
-junk: improve pose-score quality on back cams (the score derives from RTMPose
-keypoint confidence; oblique back-cam poses score poorly). May overlap the pose
-stage rather than the tracker.
-
-### Branch L1 — appearance / reid (the existing spec, now conditional)
-
-If, *after* eligibility is fixed, the residual is dominated by eligible tracks that
-fail to cluster on appearance: re-tune `eps_mcpt` with current embeddings first;
-if embeddings are genuinely the limiter, execute
-`docs/superpowers/specs/2026-05-28-reid-fine-tune-design.md` (partial SOLIDER
-Swin-Small fine-tune in Colab). Before executing, refresh that spec's stale
-numbers (it cites v3 world HOTA 0.5055 and SCT counts 11/10/1 for 0394/0395/0396;
-current v3.1 is 0.5282 with SCT 48/95/3 and MCT global IDs 1/1/0) and re-point its
-decision rule at the v3.1 baseline + the +0.02 bar.
-
-### Branch L2 — calibration / world distance
-
-If the world-distance override dominates: audit per-camera projection/homography
-for the back cams (adapter writes `Original/scene_NNN/camera_NNNN/calibration.json`
-— 3×4 projection + 3×3 homography). Cross-check projected `WorldCoordinate` for
-known same-person cross-camera pairs against the distance the override sees;
-`distance_th` re-tune as the cheap version.
-
-## Success bar & decision rule
-
-| Outcome (per Phase 1 fix) | Action |
+| Outcome | Action |
 |---|---|
-| world HOTA gain ≥ +0.02 over v3.1 (0.5282) | **Ship** — lock as new baseline, update `pipeline-state.md`, bump `configs/baseline.yaml` version comment |
-| Back-cam global IDs rise (0394/0395/0396 from 1/1/0) but gain < +0.02 | Keep if non-regressing; re-attribute residual, try next-largest gate |
-| No movement | Verify the fix engaged (re-log gate counts); if engaged but flat, move to next branch |
-| Regression (AssA / world HOTA down) | Revert — a loosened threshold over-admitted false links; tighten or move on |
+| A coverage variant gains ≥ +0.02 world HOTA, AssA not regressed | **Ship** — lock as new baseline, update `pipeline-state.md`, bump `configs/baseline.yaml` |
+| Coverage admits detections (DetA up) but world HOTA flat / AssA down | The kept set's *association* is now limiting → move to the **association axis**: cheap `eps_mcpt`/`distance_th` re-tune first, then the reid fine-tune (`2026-05-28-reid-fine-tune-design.md`, refreshed to v3.1) |
+| No coverage variant moves DetA | Verify the threshold actually propagated (`parameters_per_scene.py`); the E2/E1 admitted tracks may be duplicates SCT already merged |
+| Regression on every variant | Baseline thresholds are already optimal for this scene; the loss is intrinsic to track quality → SCT-fragmentation / pose-quality work (heavier, separate spec) |
 
 ## Out of scope
 
-- **Detector recall** — deprioritized (`detector-recall-workstream-paused.md`
-  VERDICT 2026-05-31). Not revisited unless Phase 0 shows E2/L1/L2 negligible *and*
-  E1 traces to genuine detection sparsity (2026-05-31 check suggests it does not).
-- **Generic reid quality** beyond cross-cam linking; **Swin architecture changes**;
-  **end-to-end joint detector+reid training**.
-- **Multi-scene tracker re-tuning** after a Phase 1 change — a follow-up if a fix
-  ships.
+- **Detector recall** — deprioritized (`detector-recall-workstream-paused.md`).
+- **The reid fine-tune as a drop fix** — it is association-axis only; it is the
+  *fallback* lever per the decision rule, executed against its own 2026-05-28 spec.
+- **Generic reid quality**, **Swin architecture changes**, **end-to-end joint
+  training**, **multi-scene re-tuning** (follow-up if a fix ships).
 
 ## References
 
-- World-tracks drop logic: `aic24_nvidia/world_tracks.py` (null `GlobalOfflineID`
-  or bad world coords).
-- MCPT gates: `external/AIC24_Track1_YACHIYO_RIIPS/tracking/src/mcpt.py`
-  (E1/E2 in `create_camera_dict` ~`:300-320`; L1 cosine cut + clustering ~`:224`;
-  L2 `replace_similarity` ~`:228`; `sim_th` leftover path ~`:378`).
-- Tracker param wiring: `aic24_nvidia/tracking_params.py` →
-  `tracking/config/parameters_per_scene.py`. Baseline values:
-  `short_track_th=120`, `keypoint_condition_th=1`, `eps_mcpt=0.37`,
+- Drop logic: `aic24_nvidia/world_tracks.py:27` (null `GlobalOfflineID` → dropped).
+- Eligibility gates: `external/AIC24_Track1_YACHIYO_RIIPS/tracking/src/mcpt.py`
+  `create_camera_dict` (E1 `len(all_serials) < short_track_th`; E2
+  `score > keypoint_condition_th`) ~`:312`/`:317`; clustering (association axis)
+  ~`:224`; `replace_similarity` world cannot-link ~`:228`; inert `sim_th` path ~`:378`.
+- Param wiring: `aic24_nvidia/tracking_params.py` → `tracking/config/parameters_per_scene.py`.
+  Baseline: `short_track_th=120`, `keypoint_condition_th=1`, `eps_mcpt=0.37`,
   `distance_th=10`, `distance_type=min`, `sim_th=0.85`.
-- Existing reid fine-tune spec (L1 branch):
-  `docs/superpowers/specs/2026-05-28-reid-fine-tune-design.md`.
-- Prior diagnostic: `docs/superpowers/notes/2026-05-28-world-projection-results.md`.
+- Association-axis spec: `docs/superpowers/specs/2026-05-28-reid-fine-tune-design.md`.
 
 ## Hand-off checklist
 
-1. ☐ Confirm v3.1 baseline (`outputs/baseline/`, world HOTA 0.5282) current:
-   `cat outputs/baseline/evaluate/metrics.json | jq '.mct_world'`.
-2. ☐ Write `scripts/linking_attribution.py` (offline E1/E2 rollup + log parser).
-3. ☐ Add the probe-only instrumentation to `mcpt.py`; run MCT+evaluate once.
-4. ☐ Produce the per-camera × per-gate table; reconcile to 16,421 / 13,422.
-5. ☐ Run the cheap threshold-sweep grid (`keypoint_condition_th`, `short_track_th`,
-   `eps_mcpt`, `distance_th`) as `rerun_from: mct` experiments.
-6. ☐ Select the Phase 1 branch(es) from the decision tree; apply the +0.02 ship bar.
-7. ☐ If shipping, update `pipeline-state.md` and `configs/baseline.yaml`.
-8. ☐ If the residual branch is L1, refresh + execute the 2026-05-28 reid spec
-   against the v3.1 baseline.
+1. ☐ Confirm v3.1 baseline current: `jq '.mct_world' outputs/baseline/evaluate/metrics.json`.
+2. ☐ Implement + test `aic24_nvidia/diagnostics/linking_attribution.py`; reproduce the
+   table above from `outputs/baseline/` (E1+E2+G0 = 16,421; kept = 13,422).
+3. ☐ Add the `linking_gate_sweep` experiment (`keypoint_condition_th`, `short_track_th`),
+   `rerun_from: sct`.
+4. ☐ Run the sweep; run the probe on each variant; read world HOTA / AssA / DetA.
+5. ☐ Apply the decision rule; if shipping, update `pipeline-state.md` + `configs/baseline.yaml`.
+6. ☐ If the residual is association-axis, refresh + execute the 2026-05-28 reid spec.
