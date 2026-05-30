@@ -34,45 +34,43 @@ def test_write_detection_outputs_matches_upstream_format(tmp_path):
     }
 
 
-def test_run_detection_glue_writes_expected_files(tmp_path, monkeypatch):
+def test_run_detection_glue_writes_expected_files(tmp_path):
     # Build a tmp scene dir with two tiny jpgs
     frame_dir = tmp_path / "Original" / "scene_001" / "camera_0390" / "Frame"
     frame_dir.mkdir(parents=True)
     for name in ("000001.jpg", "000002.jpg"):
         Image.new("RGB", (64, 64)).save(frame_dir / name)
 
-    # Fake detect: returns one detection for frame 000001, none for 000002
-    def fake_detect(model, img_path, conf, nms):
-        if Path(img_path).stem == "000001":
-            return [(1.0, 2.0, 3.0, 4.0, 0.9)]
-        return []
+    # Fake backend: one detection for frame 000001, none for 000002.
+    class FakeDetector:
+        def load(self, cfg, weights_root):
+            self.loaded = True
 
-    # Monkeypatch _make_model so no real YOLO model is loaded
-    monkeypatch.setattr(detect_yolo, "_make_model", lambda w: object())
+        def infer(self, img_path):
+            if Path(img_path).stem == "000001":
+                return [(1.0, 2.0, 3.0, 4.0, 0.9)]
+            return []
 
-    scene_dir = tmp_path / "Original" / "scene_001"
-    det_out_dir = tmp_path / "out"
+        def teardown(self):
+            self.torn = True
 
+    from aic24_nvidia.config import DetectCfg
     detect_yolo.run_detection(
-        scene_dir=scene_dir,
-        det_out_dir=det_out_dir,
+        scene_dir=tmp_path / "Original" / "scene_001",
+        det_out_dir=tmp_path / "out",
         cams=["camera_0390"],
-        conf_thresh=0.5,
-        nms_iou=0.5,
-        detect=fake_detect,
+        cfg=DetectCfg(conf_thresh=0.5, nms_iou=0.5),
+        weights_root=tmp_path / "weights",
+        backend=FakeDetector(),
     )
 
-    txt_path = det_out_dir / "scene_001" / "camera_0390.txt"
+    txt_path = tmp_path / "out" / "scene_001" / "camera_0390.txt"
     assert txt_path.exists(), "camera_0390.txt not written"
     lines = txt_path.read_text().splitlines()
-    # Only frame 1 produced a detection
     assert len(lines) == 1, f"expected 1 line, got {len(lines)}: {lines}"
     assert lines[0] == "camera_0390,1,1,1,2,3,4,0.9"
 
-    json_path = det_out_dir / "scene_001" / "camera_0390.json"
-    j = json.loads(json_path.read_text())
-    # The single detection has key "00000000", Frame == 1
+    j = json.loads((tmp_path / "out" / "scene_001" / "camera_0390.json").read_text())
     assert "00000000" in j
     assert j["00000000"]["Frame"] == 1
-    # Frame 2 contributed no detections → only one key
     assert len(j) == 1
