@@ -33,13 +33,14 @@ from typing import Any
 import yaml
 
 
-# All eight stages in execution order. Cache-reuse is "everything before
-# rerun_from is fair game to reuse".
-STAGES = ("adapt", "frames", "detect", "reid", "pose", "sct", "mct", "evaluate")
+# Stage order and dir-name mapping derive from the single source of truth in
+# aic24_nvidia.registry. Kept as module-level views so the rest of the harness
+# (stages_to_reuse/rerun, compare.py, run.py) is unchanged — but there is no
+# longer a hand-maintained duplicate to drift from pipeline.py.
+from aic24_nvidia import registry
 
-# Map stage name to the directory name under outputs/<run_id>/.
-# adapt writes to outputs/<run>/adapted/ (historical quirk), rest match.
-STAGE_DIR = {s: ("adapted" if s == "adapt" else s) for s in STAGES}
+STAGES = tuple(registry.order())
+STAGE_DIR = {s: registry.dir_name(s) for s in STAGES}
 
 
 def repo_root() -> Path:

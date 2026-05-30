@@ -8,50 +8,17 @@ from pathlib import Path
 
 from aic24_nvidia.config import load_config, Config
 from aic24_nvidia.paths import make_run_id, run_dir as run_dir_for, latest_run_id, stage_dir
-from aic24_nvidia.stages import (
-    adapt,
-    extract_frames,
-    detect,
-    reid,
-    pose,
-    sct,
-    mct,
-    evaluate,
-)
-from aic24_nvidia import visualize
+from aic24_nvidia import registry, visualize
 from aic24_nvidia.manifest import read_manifest, gate
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("pipeline")
 
-STAGE_RUNNERS = {
-    "adapt": adapt.run,
-    "frames": extract_frames.run,
-    "detect": detect.run,
-    "reid": reid.run,
-    "pose": pose.run,
-    "sct": sct.run,
-    "mct": mct.run,
-    "evaluate": evaluate.run,
-}
-ORDER = ["adapt", "frames", "detect", "reid", "pose", "sct", "mct", "evaluate"]
-STAGE_DIR_NAME = {s: ("adapted" if s == "adapt" else s) for s in ORDER}
-UPSTREAM_OF = {
-    "adapt": [],
-    "frames": ["adapt"],
-    "detect": ["frames"],
-    "reid": ["detect"],
-    "pose": ["reid"],
-    "sct": ["pose"],
-    "mct": ["sct"],
-    "evaluate": ["mct"],
-}
-
-
 def _gate_stage(stage: str, rd: Path, force: bool) -> bool:
-    upstream = [stage_dir(rd, STAGE_DIR_NAME[u]) / "manifest.json" for u in UPSTREAM_OF[stage]]
-    own_dir = stage_dir(rd, STAGE_DIR_NAME[stage])
+    upstream = [stage_dir(rd, registry.dir_name(u)) / "manifest.json"
+                for u in registry.upstream_of(stage)]
+    own_dir = stage_dir(rd, registry.dir_name(stage))
     try:
         decision = gate(own_dir, upstream=upstream, force=force)
     except RuntimeError as e:
@@ -83,7 +50,7 @@ def cmd_stage(stage: str, args) -> None:
     log.info("stage=%s run_id=%s", stage, run_id)
     if not _gate_stage(stage, rd, force=args.force):
         return
-    STAGE_RUNNERS[stage](cfg, rd, run_id)
+    registry.by_name(stage).run(cfg, rd, run_id)
 
 
 def cmd_all(args) -> None:
@@ -91,11 +58,11 @@ def cmd_all(args) -> None:
     run_id = args.run_id or make_run_id(cfg.config_filename, at=datetime.now())
     rd = _ensure_run_dir(cfg, run_id)
     log.info("pipeline ALL run_id=%s", run_id)
-    for s in ORDER:
+    for s in registry.order():
         log.info("=== stage %s ===", s)
         if not _gate_stage(s, rd, force=args.force):
             continue
-        STAGE_RUNNERS[s](cfg, rd, run_id)
+        registry.by_name(s).run(cfg, rd, run_id)
 
 
 def cmd_bootstrap(args) -> None:
@@ -155,7 +122,7 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser("aic24-nvidia")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    for s in ORDER + ["all"]:
+    for s in registry.order() + ["all"]:
         sp = sub.add_parser(s)
         sp.add_argument("--config", required=True, type=Path)
         sp.add_argument("--run-id", default=None)
