@@ -1,0 +1,46 @@
+diff --git a/tracking/infer.py b/tracking/infer.py
+index c9ddd14..6f784c6 100644
+--- a/tracking/infer.py
++++ b/tracking/infer.py
+@@ -2,6 +2,8 @@ import os
+ import sys
+ import json
+ from datetime import datetime
++import multiprocessing
++multiprocessing.set_start_method("fork", force=True)
+ from multiprocessing import Pool
+ import subprocess
+ import glob
+diff --git a/tracking/src/mcpt.py b/tracking/src/mcpt.py
+index 9fa4194..5a1b392 100644
+--- a/tracking/src/mcpt.py
++++ b/tracking/src/mcpt.py
+@@ -357,8 +357,13 @@ def assign_global_id(tracking_results,representative_nodes,**kwargs):
+             else:
+                 unassigned_tracks.append((camera_id,local_id))
+ 
+-    target_list = [(camera_id,serial) for global_id,camera_id,local_id,serial in assigned_tracks]    
++    target_list = [(camera_id,serial) for global_id,camera_id,local_id,serial in assigned_tracks]
+     feature_stack = create_mcpt_feature_stack(tracking_results,target_list)
++    if feature_stack is None or len(target_list) == 0:
++        # Short clips can produce no assigned tracks; skip the correction step
++        # and return the input tracking_results as-is.
++        print("[mcpt] no assigned tracks for feature_stack; skipping correction")
++        return tracking_results
+     feature_stack_T = feature_stack.T
+     feature_stack_norm = np.linalg.norm(feature_stack, axis=1)
+     global_ids = [global_id for global_id,camera_id,local_id,serial in assigned_tracks]
+@@ -423,7 +428,13 @@ def interpolate_tracklet(tracking_results,representative_nodes,**kwargs):
+         tracking_dict = tracking_results[camera_id]
+         local_ids = [tracking_dict[serial]["OfflineID"] for serial in tracking_dict]
+         unique_local_ids = sorted(list(set(local_ids)))
++        if not unique_local_ids:
++            # camera has no tracks at all — skip interpolation for this camera
++            continue
+         if min(unique_local_ids) == -1: unique_local_ids.remove(-1)
++        if not unique_local_ids:
++            # only -1 (unassigned) entries — nothing to interpolate
++            continue
+         local_id_serial_dict = {local_id:[] for local_id in unique_local_ids} 
+         [local_id_serial_dict[tracking_dict[serial]["OfflineID"]].append(serial) for serial in tracking_dict if tracking_dict[serial]["OfflineID"] != -1]
+         local_id_frame_dict = {local_id:[] for local_id in unique_local_ids} 

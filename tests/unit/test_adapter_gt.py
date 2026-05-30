@@ -65,7 +65,7 @@ def test_convert_gt_per_camera(tmp_path: Path):
     assert c2 == [
         "1,1,400,250,60,110,1,1,1",
     ]
-    world = (out_dir / "Original" / "scene_001" / "gt_world.txt").read_text().splitlines()
+    world = (out_dir / "scene_001_gt_world.txt").read_text().splitlines()
     assert world[0].startswith("1,1,10.0,5.0")
 
 

@@ -1,0 +1,25 @@
+name: lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install "ruff>=0.6" "mypy>=1.11"
+
+      - name: Ruff (high-signal rules — blocking)
+        run: ruff check .
+
+      - name: Mypy (informational)
+        # Non-blocking until the type surface is cleaned up. Tighten by removing
+        # continue-on-error once mypy is green.
+        continue-on-error: true
+        run: mypy aic24_nvidia

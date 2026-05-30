@@ -4,8 +4,13 @@ from pathlib import Path
 
 
 def make_run_id(config_filename: str, at: datetime | None = None) -> str:
+    # Second resolution: minute resolution let two runs started in the same
+    # minute collide on one run_id (and `latest_run_id` then tie-breaks them
+    # arbitrarily). Seconds make collisions vanishingly unlikely for human- or
+    # script-driven runs; for genuinely concurrent same-second starts, pass an
+    # explicit --run-id.
     at = at or datetime.now()
-    return f"{config_filename}_{at.strftime('%Y%m%d_%H%M')}"
+    return f"{config_filename}_{at.strftime('%Y%m%d_%H%M%S')}"
 
 
 def run_dir(outputs_root: Path, run_id: str) -> Path:

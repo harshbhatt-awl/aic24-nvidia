@@ -4,8 +4,10 @@ from aic24_nvidia.paths import make_run_id, run_dir, stage_dir, latest_run_id
 
 
 def test_make_run_id_format():
+    # Second-resolution timestamp so two runs started in the same minute do not
+    # collide on the same run_id (minute resolution was a real collision hazard).
     rid = make_run_id("warehouse_001_30s", at=datetime(2026, 5, 26, 14, 32, 11))
-    assert rid == "warehouse_001_30s_20260526_1432"
+    assert rid == "warehouse_001_30s_20260526_143211"
 
 
 def test_run_dir_and_stage_dir(tmp_path):

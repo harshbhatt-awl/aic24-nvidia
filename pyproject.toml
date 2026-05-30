@@ -7,17 +7,28 @@ name = "aic24-nvidia"
 version = "0.1.0"
 description = "Run AIC24_Track1_YACHIYO_RIIPS on NVIDIA MTMC_Tracking_2024"
 requires-python = ">=3.10"
+# Pinned to the verified stack (Python 3.14, torch 2.12+cu130). The ML inference
+# libraries are locked to a minor (~=) because they affect results and have a
+# history of breaking changes across minors; peripheral libs use looser caps.
+# For an exact, byte-reproducible environment use requirements.lock.
 dependencies = [
-    "numpy>=1.24",
-    "opencv-python>=4.8",
-    "pyyaml>=6.0",
-    "torch>=2.0",
-    "streamlit>=1.30",
-    "pytest>=7.4",
-    "ultralytics>=8.3",
-    "rtmlib>=0.0.13",
-    "onnxruntime-gpu>=1.17",
-    "timm>=0.9",
+    "numpy>=2.0,<3",
+    "opencv-python>=4.8,<5",
+    "pyyaml>=6.0,<7",
+    "torch~=2.12.0",
+    "torchvision~=0.27.0",
+    "streamlit>=1.30,<2",
+    "ultralytics~=8.4.0",
+    "rtmlib~=0.0.15",
+    "onnxruntime-gpu~=1.26.0",
+    "timm~=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest~=9.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
 ]
 
 [tool.setuptools.packages.find]
@@ -27,3 +38,22 @@ include = ["aic24_nvidia*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
+
+[tool.ruff]
+line-length = 120
+# Vendored upstream and the experiment-output tree are not ours to lint.
+extend-exclude = ["external", "outputs", ".venv", "aic24_nvidia/models/solider"]
+
+[tool.ruff.lint]
+# Phase 0 starts with the high-signal rules (syntax errors, undefined names,
+# invalid comparisons) so CI is green on the working tree from day one. Widen
+# this set (e.g. add "I", "B", "UP") as the codebase is cleaned up.
+select = ["E9", "F63", "F7", "F82"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+# Non-strict to start; the lint workflow runs mypy as informational
+# (continue-on-error) until the type surface is cleaned up.
+warn_unused_ignores = true
+exclude = ["external/", "outputs/", "aic24_nvidia/models/solider/"]

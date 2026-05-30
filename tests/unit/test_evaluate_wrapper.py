@@ -52,8 +52,8 @@ def test_build_mot_layout_creates_expected_tree(tmp_path):
     cam_gt["camera_0001"].write_text("1,1,100,200,50,100,1,1,1\n")
     cam_pred["camera_0001"].write_text("1,1,100,200,50,100,1,-1,-1,-1\n")
     _build_mot_layout(out, scene="S001", cam_gt=cam_gt, cam_pred=cam_pred)
-    assert (out / "gt" / "S001" / "S001-camera_0001" / "gt" / "gt.txt").exists()
-    assert (out / "trackers" / "S001" / "yachiyo" / "data" / "S001-camera_0001.txt").exists()
+    assert (out / "gt" / "S001-train" / "S001-camera_0001" / "gt" / "gt.txt").exists()
+    assert (out / "trackers" / "S001-train" / "yachiyo" / "data" / "S001-camera_0001.txt").exists()
 
 
 def test_summarize_metrics_extracts_hota():

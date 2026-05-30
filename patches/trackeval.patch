@@ -1,0 +1,719 @@
+diff --git a/trackeval/baselines/stp.py b/trackeval/baselines/stp.py
+index c1c9d1e..0527263 100644
+--- a/trackeval/baselines/stp.py
++++ b/trackeval/baselines/stp.py
+@@ -49,7 +49,7 @@ def track_sequence(seq_file):
+ 
+         # Initialize container for holding previously tracked objects.
+         prev = {'boxes': np.empty((0, 4)),
+-                'ids': np.array([], np.int),
++                'ids': np.array([], int),
+                 'timesteps': np.array([])}
+ 
+         # Run tracker for each timestep.
+@@ -80,7 +80,7 @@ def track_sequence(seq_file):
+             match_cols = match_cols[actually_matched_mask]
+ 
+             # Assign the prev track ID to the current dets if they were matched.
+-            ids = np.nan * np.ones((len(boxes),), np.int)
++            ids = np.nan * np.ones((len(boxes),), int)
+             ids[match_cols] = prev['ids'][match_rows]
+ 
+             # Create new track IDs for dets that were not matched to previous tracks.
+diff --git a/trackeval/datasets/bdd100k.py b/trackeval/datasets/bdd100k.py
+index cc4fd06..f5de301 100644
+--- a/trackeval/datasets/bdd100k.py
++++ b/trackeval/datasets/bdd100k.py
+@@ -226,12 +226,12 @@ class BDD100K(_BaseDataset):
+ 
+             # Only extract relevant dets for this class for preproc and eval (cls)
+             gt_class_mask = np.atleast_1d(raw_data['gt_classes'][t] == cls_id)
+-            gt_class_mask = gt_class_mask.astype(np.bool)
++            gt_class_mask = gt_class_mask.astype(bool)
+             gt_ids = raw_data['gt_ids'][t][gt_class_mask]
+             gt_dets = raw_data['gt_dets'][t][gt_class_mask]
+ 
+             tracker_class_mask = np.atleast_1d(raw_data['tracker_classes'][t] == cls_id)
+-            tracker_class_mask = tracker_class_mask.astype(np.bool)
++            tracker_class_mask = tracker_class_mask.astype(bool)
+             tracker_ids = raw_data['tracker_ids'][t][tracker_class_mask]
+             tracker_dets = raw_data['tracker_dets'][t][tracker_class_mask]
+             similarity_scores = raw_data['similarity_scores'][t][gt_class_mask, :][:, tracker_class_mask]
+@@ -276,14 +276,14 @@ class BDD100K(_BaseDataset):
+             gt_id_map[unique_gt_ids] = np.arange(len(unique_gt_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['gt_ids'][t]) > 0:
+-                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(np.int)
++                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(int)
+         if len(unique_tracker_ids) > 0:
+             unique_tracker_ids = np.unique(unique_tracker_ids)
+             tracker_id_map = np.nan * np.ones((np.max(unique_tracker_ids) + 1))
+             tracker_id_map[unique_tracker_ids] = np.arange(len(unique_tracker_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['tracker_ids'][t]) > 0:
+-                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(np.int)
++                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(int)
+ 
+         # Record overview statistics.
+         data['num_tracker_dets'] = num_tracker_dets
+diff --git a/trackeval/datasets/burst_helpers/burst_base.py b/trackeval/datasets/burst_helpers/burst_base.py
+index 394eda4..3bd4a92 100644
+--- a/trackeval/datasets/burst_helpers/burst_base.py
++++ b/trackeval/datasets/burst_helpers/burst_base.py
+@@ -322,12 +322,12 @@ class BURSTBase(_BaseDataset):
+ 
+             # Only extract relevant dets for this class for preproc and eval (cls)
+             gt_class_mask = np.atleast_1d(raw_data['gt_classes'][t] == cls_id)
+-            gt_class_mask = gt_class_mask.astype(np.bool)
++            gt_class_mask = gt_class_mask.astype(bool)
+             gt_ids = raw_data['gt_ids'][t][gt_class_mask]
+             gt_dets = raw_data['gt_dets'][t][gt_class_mask]
+ 
+             tracker_class_mask = np.atleast_1d(raw_data['tracker_classes'][t] == cls_id)
+-            tracker_class_mask = tracker_class_mask.astype(np.bool)
++            tracker_class_mask = tracker_class_mask.astype(bool)
+             tracker_ids = raw_data['tracker_ids'][t][tracker_class_mask]
+             tracker_dets = raw_data['tracker_dets'][t][tracker_class_mask]
+             tracker_confidences = raw_data['tracker_confidences'][t][tracker_class_mask]
+@@ -349,7 +349,7 @@ class BURSTBase(_BaseDataset):
+                 elif is_not_exhaustively_labeled:
+                     to_remove_tracker = unmatched_indices
+                 else:
+-                    to_remove_tracker = np.array([], dtype=np.int)
++                    to_remove_tracker = np.array([], dtype=int)
+ 
+                 # remove all unwanted unmatched tracker detections
+                 data['tracker_ids'][t] = np.delete(tracker_ids, to_remove_tracker, axis=0)
+@@ -377,14 +377,14 @@ class BURSTBase(_BaseDataset):
+             gt_id_map[unique_gt_ids] = np.arange(len(unique_gt_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['gt_ids'][t]) > 0:
+-                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(np.int)
++                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(int)
+         if len(unique_tracker_ids) > 0:
+             unique_tracker_ids = np.unique(unique_tracker_ids)
+             tracker_id_map = np.nan * np.ones((np.max(unique_tracker_ids) + 1))
+             tracker_id_map[unique_tracker_ids] = np.arange(len(unique_tracker_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['tracker_ids'][t]) > 0:
+-                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(np.int)
++                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(int)
+ 
+         # Record overview statistics.
+         data['num_tracker_dets'] = num_tracker_dets
+diff --git a/trackeval/datasets/burst_helpers/burst_ow_base.py b/trackeval/datasets/burst_helpers/burst_ow_base.py
+index bef14d2..be8f4c7 100644
+--- a/trackeval/datasets/burst_helpers/burst_ow_base.py
++++ b/trackeval/datasets/burst_helpers/burst_ow_base.py
+@@ -332,12 +332,12 @@ class BURST_OW_Base(_BaseDataset):
+ 
+             # Only extract relevant dets for this class for preproc and eval (cls)
+             gt_class_mask = np.atleast_1d(raw_data['gt_classes'][t] == cls_id)
+-            gt_class_mask = gt_class_mask.astype(np.bool)
++            gt_class_mask = gt_class_mask.astype(bool)
+             gt_ids = raw_data['gt_ids'][t][gt_class_mask]
+             gt_dets = raw_data['gt_dets'][t][gt_class_mask]
+ 
+             tracker_class_mask = np.atleast_1d(raw_data['tracker_classes'][t] == cls_id)
+-            tracker_class_mask = tracker_class_mask.astype(np.bool)
++            tracker_class_mask = tracker_class_mask.astype(bool)
+             tracker_ids = raw_data['tracker_ids'][t][tracker_class_mask]
+             tracker_dets = raw_data['tracker_dets'][t][tracker_class_mask]
+             tracker_confidences = raw_data['tracker_confidences'][t][tracker_class_mask]
+@@ -358,7 +358,7 @@ class BURST_OW_Base(_BaseDataset):
+             elif is_not_exhaustively_labeled:
+                 to_remove_tracker = unmatched_indices
+             else:
+-                to_remove_tracker = np.array([], dtype=np.int)
++                to_remove_tracker = np.array([], dtype=int)
+ 
+             # remove all unwanted unmatched tracker detections
+             data['tracker_ids'][t] = np.delete(tracker_ids, to_remove_tracker, axis=0)
+@@ -382,14 +382,14 @@ class BURST_OW_Base(_BaseDataset):
+             gt_id_map[unique_gt_ids] = np.arange(len(unique_gt_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['gt_ids'][t]) > 0:
+-                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(np.int)
++                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(int)
+         if len(unique_tracker_ids) > 0:
+             unique_tracker_ids = np.unique(unique_tracker_ids)
+             tracker_id_map = np.nan * np.ones((np.max(unique_tracker_ids) + 1))
+             tracker_id_map[unique_tracker_ids] = np.arange(len(unique_tracker_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['tracker_ids'][t]) > 0:
+-                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(np.int)
++                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(int)
+ 
+         # Record overview statistics.
+         data['num_tracker_dets'] = num_tracker_dets
+diff --git a/trackeval/datasets/davis.py b/trackeval/datasets/davis.py
+index 9db25e9..021ca98 100644
+--- a/trackeval/datasets/davis.py
++++ b/trackeval/datasets/davis.py
+@@ -240,7 +240,7 @@ class DAVIS(_BaseDataset):
+                     rows, columns = np.where(void_mask_ious > 0)
+                     for r in rows:
+                         det = mask_utils.decode(raw_data['tracker_dets'][t][r])
+-                        void = mask_utils.decode(void_mask).astype(np.bool)
++                        void = mask_utils.decode(void_mask).astype(bool)
+                         det[void] = 0
+                         det = mask_utils.encode(np.array(det, order='F').astype(np.uint8))
+                         raw_data['tracker_dets'][t][r] = det
+@@ -253,14 +253,14 @@ class DAVIS(_BaseDataset):
+             gt_id_map[unique_gt_ids] = np.arange(len(unique_gt_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['gt_ids'][t]) > 0:
+-                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(np.int)
++                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(int)
+         if len(unique_tracker_ids) > 0:
+             unique_tracker_ids = np.unique(unique_tracker_ids)
+             tracker_id_map = np.nan * np.ones((np.max(unique_tracker_ids) + 1))
+             tracker_id_map[unique_tracker_ids] = np.arange(len(unique_tracker_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['tracker_ids'][t]) > 0:
+-                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(np.int)
++                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(int)
+ 
+         # Record overview statistics.
+         data['num_tracker_dets'] = num_tracker_dets
+diff --git a/trackeval/datasets/head_tracking_challenge.py b/trackeval/datasets/head_tracking_challenge.py
+index 469e9a3..d9aae6b 100644
+--- a/trackeval/datasets/head_tracking_challenge.py
++++ b/trackeval/datasets/head_tracking_challenge.py
+@@ -227,7 +227,7 @@ class HeadTrackingChallenge(_BaseDataset):
+             time_key = str(t+1)
+             if time_key in read_data.keys():
+                 try:
+-                    time_data = np.asarray(read_data[time_key], dtype=np.float)
++                    time_data = np.asarray(read_data[time_key], dtype=float)
+                 except ValueError:
+                     if is_gt:
+                         raise TrackEvalException(
+@@ -365,7 +365,7 @@ class HeadTrackingChallenge(_BaseDataset):
+ 
+             # Match tracker and gt dets (with hungarian algorithm) and remove tracker dets which match with gt dets
+             # which are labeled as belonging to a distractor class.
+-            to_remove_tracker = np.array([], np.int)
++            to_remove_tracker = np.array([], int)
+             if self.do_preproc and self.benchmark != 'MOT15' and gt_ids.shape[0] > 0 and tracker_ids.shape[0] > 0:
+ 
+                 # Check all classes are valid:
+@@ -432,14 +432,14 @@ class HeadTrackingChallenge(_BaseDataset):
+             gt_id_map[unique_gt_ids] = np.arange(len(unique_gt_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['gt_ids'][t]) > 0:
+-                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(np.int)
++                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(int)
+         if len(unique_tracker_ids) > 0:
+             unique_tracker_ids = np.unique(unique_tracker_ids)
+             tracker_id_map = np.nan * np.ones((np.max(unique_tracker_ids) + 1))
+             tracker_id_map[unique_tracker_ids] = np.arange(len(unique_tracker_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['tracker_ids'][t]) > 0:
+-                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(np.int)
++                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(int)
+ 
+         # Record overview statistics.
+         data['num_tracker_dets'] = num_tracker_dets
+diff --git a/trackeval/datasets/kitti_2d_box.py b/trackeval/datasets/kitti_2d_box.py
+index c582c43..0c9ab6f 100644
+--- a/trackeval/datasets/kitti_2d_box.py
++++ b/trackeval/datasets/kitti_2d_box.py
+@@ -190,7 +190,7 @@ class Kitti2DBox(_BaseDataset):
+         for t in range(num_timesteps):
+             time_key = str(t)
+             if time_key in read_data.keys():
+-                time_data = np.asarray(read_data[time_key], dtype=np.float)
++                time_data = np.asarray(read_data[time_key], dtype=float)
+                 raw_data['dets'][t] = np.atleast_2d(time_data[:, 6:10])
+                 raw_data['ids'][t] = np.atleast_1d(time_data[:, 1]).astype(int)
+                 raw_data['classes'][t] = np.atleast_1d(time_data[:, 2]).astype(int)
+@@ -215,7 +215,7 @@ class Kitti2DBox(_BaseDataset):
+                     raw_data['tracker_confidences'][t] = np.empty(0)
+             if is_gt:
+                 if time_key in ignore_data.keys():
+-                    time_ignore = np.asarray(ignore_data[time_key], dtype=np.float)
++                    time_ignore = np.asarray(ignore_data[time_key], dtype=float)
+                     raw_data['gt_crowd_ignore_regions'][t] = np.atleast_2d(time_ignore[:, 6:10])
+                 else:
+                     raw_data['gt_crowd_ignore_regions'][t] = np.empty((0, 4))
+@@ -288,7 +288,7 @@ class Kitti2DBox(_BaseDataset):
+ 
+             # Only extract relevant dets for this class for preproc and eval (cls + distractor classes)
+             gt_class_mask = np.sum([raw_data['gt_classes'][t] == c for c in [cls_id] + distractor_classes], axis=0)
+-            gt_class_mask = gt_class_mask.astype(np.bool)
++            gt_class_mask = gt_class_mask.astype(bool)
+             gt_ids = raw_data['gt_ids'][t][gt_class_mask]
+             gt_dets = raw_data['gt_dets'][t][gt_class_mask]
+             gt_classes = raw_data['gt_classes'][t][gt_class_mask]
+@@ -296,7 +296,7 @@ class Kitti2DBox(_BaseDataset):
+             gt_truncation = raw_data['gt_extras'][t]['truncation'][gt_class_mask]
+ 
+             tracker_class_mask = np.atleast_1d(raw_data['tracker_classes'][t] == cls_id)
+-            tracker_class_mask = tracker_class_mask.astype(np.bool)
++            tracker_class_mask = tracker_class_mask.astype(bool)
+             tracker_ids = raw_data['tracker_ids'][t][tracker_class_mask]
+             tracker_dets = raw_data['tracker_dets'][t][tracker_class_mask]
+             tracker_confidences = raw_data['tracker_confidences'][t][tracker_class_mask]
+@@ -304,7 +304,7 @@ class Kitti2DBox(_BaseDataset):
+ 
+             # Match tracker and gt dets (with hungarian algorithm) and remove tracker dets which match with gt dets
+             # which are labeled as truncated, occluded, or belonging to a distractor class.
+-            to_remove_matched = np.array([], np.int)
++            to_remove_matched = np.array([], int)
+             unmatched_indices = np.arange(tracker_ids.shape[0])
+             if gt_ids.shape[0] > 0 and tracker_ids.shape[0] > 0:
+                 matching_scores = similarity_scores.copy()
+@@ -362,14 +362,14 @@ class Kitti2DBox(_BaseDataset):
+             gt_id_map[unique_gt_ids] = np.arange(len(unique_gt_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['gt_ids'][t]) > 0:
+-                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(np.int)
++                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(int)
+         if len(unique_tracker_ids) > 0:
+             unique_tracker_ids = np.unique(unique_tracker_ids)
+             tracker_id_map = np.nan * np.ones((np.max(unique_tracker_ids) + 1))
+             tracker_id_map[unique_tracker_ids] = np.arange(len(unique_tracker_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['tracker_ids'][t]) > 0:
+-                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(np.int)
++                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(int)
+ 
+         # Record overview statistics.
+         data['num_tracker_dets'] = num_tracker_dets
+diff --git a/trackeval/datasets/kitti_mots.py b/trackeval/datasets/kitti_mots.py
+index 9e04d3c..b8471c1 100644
+--- a/trackeval/datasets/kitti_mots.py
++++ b/trackeval/datasets/kitti_mots.py
+@@ -311,12 +311,12 @@ class KittiMOTS(_BaseDataset):
+ 
+             # Only extract relevant dets for this class for preproc and eval (cls)
+             gt_class_mask = np.atleast_1d(raw_data['gt_classes'][t] == cls_id)
+-            gt_class_mask = gt_class_mask.astype(np.bool)
++            gt_class_mask = gt_class_mask.astype(bool)
+             gt_ids = raw_data['gt_ids'][t][gt_class_mask]
+             gt_dets = [raw_data['gt_dets'][t][ind] for ind in range(len(gt_class_mask)) if gt_class_mask[ind]]
+ 
+             tracker_class_mask = np.atleast_1d(raw_data['tracker_classes'][t] == cls_id)
+-            tracker_class_mask = tracker_class_mask.astype(np.bool)
++            tracker_class_mask = tracker_class_mask.astype(bool)
+             tracker_ids = raw_data['tracker_ids'][t][tracker_class_mask]
+             tracker_dets = [raw_data['tracker_dets'][t][ind] for ind in range(len(tracker_class_mask)) if
+                             tracker_class_mask[ind]]
+@@ -363,14 +363,14 @@ class KittiMOTS(_BaseDataset):
+             gt_id_map[unique_gt_ids] = np.arange(len(unique_gt_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['gt_ids'][t]) > 0:
+-                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(np.int)
++                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(int)
+         if len(unique_tracker_ids) > 0:
+             unique_tracker_ids = np.unique(unique_tracker_ids)
+             tracker_id_map = np.nan * np.ones((np.max(unique_tracker_ids) + 1))
+             tracker_id_map[unique_tracker_ids] = np.arange(len(unique_tracker_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['tracker_ids'][t]) > 0:
+-                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(np.int)
++                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(int)
+ 
+         # Record overview statistics.
+         data['num_tracker_dets'] = num_tracker_dets
+diff --git a/trackeval/datasets/mot_challenge_2d_box.py b/trackeval/datasets/mot_challenge_2d_box.py
+index 68aac51..562a824 100644
+--- a/trackeval/datasets/mot_challenge_2d_box.py
++++ b/trackeval/datasets/mot_challenge_2d_box.py
+@@ -225,7 +225,7 @@ class MotChallenge2DBox(_BaseDataset):
+             time_key = str(t+1)
+             if time_key in read_data.keys():
+                 try:
+-                    time_data = np.asarray(read_data[time_key], dtype=np.float)
++                    time_data = np.asarray(read_data[time_key], dtype=float)
+                 except ValueError:
+                     if is_gt:
+                         raise TrackEvalException(
+@@ -356,7 +356,7 @@ class MotChallenge2DBox(_BaseDataset):
+ 
+             # Match tracker and gt dets (with hungarian algorithm) and remove tracker dets which match with gt dets
+             # which are labeled as belonging to a distractor class.
+-            to_remove_tracker = np.array([], np.int)
++            to_remove_tracker = np.array([], int)
+             if self.do_preproc and self.benchmark != 'MOT15' and gt_ids.shape[0] > 0 and tracker_ids.shape[0] > 0:
+ 
+                 # Check all classes are valid:
+@@ -410,14 +410,14 @@ class MotChallenge2DBox(_BaseDataset):
+             gt_id_map[unique_gt_ids] = np.arange(len(unique_gt_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['gt_ids'][t]) > 0:
+-                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(np.int)
++                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(int)
+         if len(unique_tracker_ids) > 0:
+             unique_tracker_ids = np.unique(unique_tracker_ids)
+             tracker_id_map = np.nan * np.ones((np.max(unique_tracker_ids) + 1))
+             tracker_id_map[unique_tracker_ids] = np.arange(len(unique_tracker_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['tracker_ids'][t]) > 0:
+-                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(np.int)
++                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(int)
+ 
+         # Record overview statistics.
+         data['num_tracker_dets'] = num_tracker_dets
+diff --git a/trackeval/datasets/mots_challenge.py b/trackeval/datasets/mots_challenge.py
+index 191b438..01984a7 100644
+--- a/trackeval/datasets/mots_challenge.py
++++ b/trackeval/datasets/mots_challenge.py
+@@ -332,12 +332,12 @@ class MOTSChallenge(_BaseDataset):
+ 
+             # Only extract relevant dets for this class for preproc and eval (cls)
+             gt_class_mask = np.atleast_1d(raw_data['gt_classes'][t] == cls_id)
+-            gt_class_mask = gt_class_mask.astype(np.bool)
++            gt_class_mask = gt_class_mask.astype(bool)
+             gt_ids = raw_data['gt_ids'][t][gt_class_mask]
+             gt_dets = [raw_data['gt_dets'][t][ind] for ind in range(len(gt_class_mask)) if gt_class_mask[ind]]
+ 
+             tracker_class_mask = np.atleast_1d(raw_data['tracker_classes'][t] == cls_id)
+-            tracker_class_mask = tracker_class_mask.astype(np.bool)
++            tracker_class_mask = tracker_class_mask.astype(bool)
+             tracker_ids = raw_data['tracker_ids'][t][tracker_class_mask]
+             tracker_dets = [raw_data['tracker_dets'][t][ind] for ind in range(len(tracker_class_mask)) if
+                             tracker_class_mask[ind]]
+@@ -384,14 +384,14 @@ class MOTSChallenge(_BaseDataset):
+             gt_id_map[unique_gt_ids] = np.arange(len(unique_gt_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['gt_ids'][t]) > 0:
+-                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(np.int)
++                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(int)
+         if len(unique_tracker_ids) > 0:
+             unique_tracker_ids = np.unique(unique_tracker_ids)
+             tracker_id_map = np.nan * np.ones((np.max(unique_tracker_ids) + 1))
+             tracker_id_map[unique_tracker_ids] = np.arange(len(unique_tracker_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['tracker_ids'][t]) > 0:
+-                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(np.int)
++                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(int)
+ 
+         # Record overview statistics.
+         data['num_tracker_dets'] = num_tracker_dets
+diff --git a/trackeval/datasets/person_path_22.py b/trackeval/datasets/person_path_22.py
+index 177954a..46826c9 100644
+--- a/trackeval/datasets/person_path_22.py
++++ b/trackeval/datasets/person_path_22.py
+@@ -230,7 +230,7 @@ class PersonPath22(_BaseDataset):
+             time_key = str(t+1)
+             if time_key in read_data.keys():
+                 try:
+-                    time_data = np.asarray(read_data[time_key], dtype=np.float)
++                    time_data = np.asarray(read_data[time_key], dtype=float)
+                 except ValueError:
+                     if is_gt:
+                         raise TrackEvalException(
+@@ -276,7 +276,7 @@ class PersonPath22(_BaseDataset):
+                     raw_data['tracker_confidences'][t] = np.empty(0)
+             if is_gt:
+                 if time_key in ignore_data.keys():
+-                    time_ignore = np.asarray(ignore_data[time_key], dtype=np.float)
++                    time_ignore = np.asarray(ignore_data[time_key], dtype=float)
+                     raw_data['gt_crowd_ignore_regions'][t] = np.atleast_2d(time_ignore[:, 2:6])
+                 else:
+                     raw_data['gt_crowd_ignore_regions'][t] = np.empty((0, 4))
+@@ -366,7 +366,7 @@ class PersonPath22(_BaseDataset):
+ 
+             # Match tracker and gt dets (with hungarian algorithm) and remove tracker dets which match with gt dets
+             # which are labeled as belonging to a distractor class.
+-            to_remove_tracker = np.array([], np.int)
++            to_remove_tracker = np.array([], int)
+             if self.do_preproc and self.benchmark != 'MOT15' and (gt_ids.shape[0] > 0 or len(crowd_ignore_regions) > 0) and tracker_ids.shape[0] > 0:
+ 
+                 # Check all classes are valid:
+@@ -425,14 +425,14 @@ class PersonPath22(_BaseDataset):
+             gt_id_map[unique_gt_ids] = np.arange(len(unique_gt_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['gt_ids'][t]) > 0:
+-                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(np.int)
++                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(int)
+         if len(unique_tracker_ids) > 0:
+             unique_tracker_ids = np.unique(unique_tracker_ids)
+             tracker_id_map = np.nan * np.ones((np.max(unique_tracker_ids) + 1))
+             tracker_id_map[unique_tracker_ids] = np.arange(len(unique_tracker_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['tracker_ids'][t]) > 0:
+-                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(np.int)
++                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(int)
+ 
+         # Record overview statistics.
+         data['num_tracker_dets'] = num_tracker_dets
+diff --git a/trackeval/datasets/rob_mots.py b/trackeval/datasets/rob_mots.py
+index d6a6d1e..e36e7d4 100644
+--- a/trackeval/datasets/rob_mots.py
++++ b/trackeval/datasets/rob_mots.py
+@@ -351,7 +351,7 @@ class RobMOTS(_BaseDataset):
+                 gt_class_mask = np.isin(raw_data['gt_classes'][t], waymo_vehicle_classes)
+             else:
+                 gt_class_mask = raw_data['gt_classes'][t] == cls_id
+-            gt_class_mask = gt_class_mask.astype(np.bool)
++            gt_class_mask = gt_class_mask.astype(bool)
+             gt_ids = raw_data['gt_ids'][t][gt_class_mask]
+             if cls == 'all':
+                 ignore_regions_mask = raw_data['gt_classes'][t] >= 100
+@@ -376,7 +376,7 @@ class RobMOTS(_BaseDataset):
+                 tracker_class_mask = np.ones_like(raw_data['tracker_classes'][t])
+             else:
+                 tracker_class_mask = np.atleast_1d(raw_data['tracker_classes'][t] == cls_id)
+-            tracker_class_mask = tracker_class_mask.astype(np.bool)
++            tracker_class_mask = tracker_class_mask.astype(bool)
+             tracker_ids = raw_data['tracker_ids'][t][tracker_class_mask]
+             tracker_dets = [raw_data['tracker_dets'][t][ind] for ind in range(len(tracker_class_mask)) if
+                             tracker_class_mask[ind]]
+@@ -443,7 +443,7 @@ class RobMOTS(_BaseDataset):
+                     to_remove_all = unmatched_indices[np.logical_or(is_ignore_class, is_not_evaled_class)]
+                     to_remove_tracker = np.concatenate([to_remove_tracker, to_remove_all], axis=0)
+             else:
+-                to_remove_tracker = np.array([], dtype=np.int)
++                to_remove_tracker = np.array([], dtype=int)
+ 
+             # remove all unwanted tracker detections
+             data['tracker_ids'][t] = np.delete(tracker_ids, to_remove_tracker, axis=0)
+@@ -468,14 +468,14 @@ class RobMOTS(_BaseDataset):
+             gt_id_map[unique_gt_ids] = np.arange(len(unique_gt_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['gt_ids'][t]) > 0:
+-                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(np.int)
++                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(int)
+         if len(unique_tracker_ids) > 0:
+             unique_tracker_ids = np.unique(unique_tracker_ids)
+             tracker_id_map = np.nan * np.ones((np.max(unique_tracker_ids) + 1))
+             tracker_id_map[unique_tracker_ids] = np.arange(len(unique_tracker_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['tracker_ids'][t]) > 0:
+-                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(np.int)
++                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(int)
+ 
+         # Record overview statistics.
+         data['num_tracker_dets'] = num_tracker_dets
+diff --git a/trackeval/datasets/tao.py b/trackeval/datasets/tao.py
+index e846167..af7b398 100644
+--- a/trackeval/datasets/tao.py
++++ b/trackeval/datasets/tao.py
+@@ -302,12 +302,12 @@ class TAO(_BaseDataset):
+ 
+             # Only extract relevant dets for this class for preproc and eval (cls)
+             gt_class_mask = np.atleast_1d(raw_data['gt_classes'][t] == cls_id)
+-            gt_class_mask = gt_class_mask.astype(np.bool)
++            gt_class_mask = gt_class_mask.astype(bool)
+             gt_ids = raw_data['gt_ids'][t][gt_class_mask]
+             gt_dets = raw_data['gt_dets'][t][gt_class_mask]
+ 
+             tracker_class_mask = np.atleast_1d(raw_data['tracker_classes'][t] == cls_id)
+-            tracker_class_mask = tracker_class_mask.astype(np.bool)
++            tracker_class_mask = tracker_class_mask.astype(bool)
+             tracker_ids = raw_data['tracker_ids'][t][tracker_class_mask]
+             tracker_dets = raw_data['tracker_dets'][t][tracker_class_mask]
+             tracker_confidences = raw_data['tracker_confidences'][t][tracker_class_mask]
+@@ -328,7 +328,7 @@ class TAO(_BaseDataset):
+             elif is_not_exhaustively_labeled:
+                 to_remove_tracker = unmatched_indices
+             else:
+-                to_remove_tracker = np.array([], dtype=np.int)
++                to_remove_tracker = np.array([], dtype=int)
+ 
+             # remove all unwanted unmatched tracker detections
+             data['tracker_ids'][t] = np.delete(tracker_ids, to_remove_tracker, axis=0)
+@@ -352,14 +352,14 @@ class TAO(_BaseDataset):
+             gt_id_map[unique_gt_ids] = np.arange(len(unique_gt_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['gt_ids'][t]) > 0:
+-                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(np.int)
++                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(int)
+         if len(unique_tracker_ids) > 0:
+             unique_tracker_ids = np.unique(unique_tracker_ids)
+             tracker_id_map = np.nan * np.ones((np.max(unique_tracker_ids) + 1))
+             tracker_id_map[unique_tracker_ids] = np.arange(len(unique_tracker_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['tracker_ids'][t]) > 0:
+-                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(np.int)
++                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(int)
+ 
+         # Record overview statistics.
+         data['num_tracker_dets'] = num_tracker_dets
+diff --git a/trackeval/datasets/tao_ow.py b/trackeval/datasets/tao_ow.py
+index 40f80d7..34ef56e 100644
+--- a/trackeval/datasets/tao_ow.py
++++ b/trackeval/datasets/tao_ow.py
+@@ -317,12 +317,12 @@ class TAO_OW(_BaseDataset):
+ 
+             # Only extract relevant dets for this class for preproc and eval (cls)
+             gt_class_mask = np.atleast_1d(raw_data['gt_classes'][t] == cls_id)
+-            gt_class_mask = gt_class_mask.astype(np.bool)
++            gt_class_mask = gt_class_mask.astype(bool)
+             gt_ids = raw_data['gt_ids'][t][gt_class_mask]
+             gt_dets = raw_data['gt_dets'][t][gt_class_mask]
+ 
+             tracker_class_mask = np.atleast_1d(raw_data['tracker_classes'][t] == cls_id)
+-            tracker_class_mask = tracker_class_mask.astype(np.bool)
++            tracker_class_mask = tracker_class_mask.astype(bool)
+             tracker_ids = raw_data['tracker_ids'][t][tracker_class_mask]
+             tracker_dets = raw_data['tracker_dets'][t][tracker_class_mask]
+             tracker_confidences = raw_data['tracker_confidences'][t][tracker_class_mask]
+@@ -343,7 +343,7 @@ class TAO_OW(_BaseDataset):
+             elif is_not_exhaustively_labeled:
+                 to_remove_tracker = unmatched_indices
+             else:
+-                to_remove_tracker = np.array([], dtype=np.int)
++                to_remove_tracker = np.array([], dtype=int)
+ 
+             # remove all unwanted unmatched tracker detections
+             data['tracker_ids'][t] = np.delete(tracker_ids, to_remove_tracker, axis=0)
+@@ -367,14 +367,14 @@ class TAO_OW(_BaseDataset):
+             gt_id_map[unique_gt_ids] = np.arange(len(unique_gt_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['gt_ids'][t]) > 0:
+-                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(np.int)
++                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(int)
+         if len(unique_tracker_ids) > 0:
+             unique_tracker_ids = np.unique(unique_tracker_ids)
+             tracker_id_map = np.nan * np.ones((np.max(unique_tracker_ids) + 1))
+             tracker_id_map[unique_tracker_ids] = np.arange(len(unique_tracker_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['tracker_ids'][t]) > 0:
+-                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(np.int)
++                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(int)
+ 
+         # Record overview statistics.
+         data['num_tracker_dets'] = num_tracker_dets
+diff --git a/trackeval/datasets/youtube_vis.py b/trackeval/datasets/youtube_vis.py
+index 6d5b54c..801840e 100644
+--- a/trackeval/datasets/youtube_vis.py
++++ b/trackeval/datasets/youtube_vis.py
+@@ -241,12 +241,12 @@ class YouTubeVIS(_BaseDataset):
+ 
+             # Only extract relevant dets for this class for eval (cls)
+             gt_class_mask = np.atleast_1d(raw_data['gt_classes'][t] == cls_id)
+-            gt_class_mask = gt_class_mask.astype(np.bool)
++            gt_class_mask = gt_class_mask.astype(bool)
+             gt_ids = raw_data['gt_ids'][t][gt_class_mask]
+             gt_dets = [raw_data['gt_dets'][t][ind] for ind in range(len(gt_class_mask)) if gt_class_mask[ind]]
+ 
+             tracker_class_mask = np.atleast_1d(raw_data['tracker_classes'][t] == cls_id)
+-            tracker_class_mask = tracker_class_mask.astype(np.bool)
++            tracker_class_mask = tracker_class_mask.astype(bool)
+             tracker_ids = raw_data['tracker_ids'][t][tracker_class_mask]
+             tracker_dets = [raw_data['tracker_dets'][t][ind] for ind in range(len(tracker_class_mask)) if
+                             tracker_class_mask[ind]]
+@@ -270,14 +270,14 @@ class YouTubeVIS(_BaseDataset):
+             gt_id_map[unique_gt_ids] = np.arange(len(unique_gt_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['gt_ids'][t]) > 0:
+-                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(np.int)
++                    data['gt_ids'][t] = gt_id_map[data['gt_ids'][t]].astype(int)
+         if len(unique_tracker_ids) > 0:
+             unique_tracker_ids = np.unique(unique_tracker_ids)
+             tracker_id_map = np.nan * np.ones((np.max(unique_tracker_ids) + 1))
+             tracker_id_map[unique_tracker_ids] = np.arange(len(unique_tracker_ids))
+             for t in range(raw_data['num_timesteps']):
+                 if len(data['tracker_ids'][t]) > 0:
+-                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(np.int)
++                    data['tracker_ids'][t] = tracker_id_map[data['tracker_ids'][t]].astype(int)
+ 
+         # Ensure that ids are unique per timestep.
+         self._check_unique_ids(data)
+diff --git a/trackeval/metrics/hota.py b/trackeval/metrics/hota.py
+index f551b76..d399273 100644
+--- a/trackeval/metrics/hota.py
++++ b/trackeval/metrics/hota.py
+@@ -28,19 +28,19 @@ class HOTA(_BaseMetric):
+         # Initialise results
+         res = {}
+         for field in self.float_array_fields + self.integer_array_fields:
+-            res[field] = np.zeros((len(self.array_labels)), dtype=np.float)
++            res[field] = np.zeros((len(self.array_labels)), dtype=float)
+         for field in self.float_fields:
+             res[field] = 0
+ 
+         # Return result quickly if tracker or gt sequence is empty
+         if data['num_tracker_dets'] == 0:
+-            res['HOTA_FN'] = data['num_gt_dets'] * np.ones((len(self.array_labels)), dtype=np.float)
+-            res['LocA'] = np.ones((len(self.array_labels)), dtype=np.float)
++            res['HOTA_FN'] = data['num_gt_dets'] * np.ones((len(self.array_labels)), dtype=float)
++            res['LocA'] = np.ones((len(self.array_labels)), dtype=float)
+             res['LocA(0)'] = 1.0
+             return res
+         if data['num_gt_dets'] == 0:
+-            res['HOTA_FP'] = data['num_tracker_dets'] * np.ones((len(self.array_labels)), dtype=np.float)
+-            res['LocA'] = np.ones((len(self.array_labels)), dtype=np.float)
++            res['HOTA_FP'] = data['num_tracker_dets'] * np.ones((len(self.array_labels)), dtype=float)
++            res['LocA'] = np.ones((len(self.array_labels)), dtype=float)
+             res['LocA(0)'] = 1.0
+             return res
+ 
+diff --git a/trackeval/metrics/identity.py b/trackeval/metrics/identity.py
+index c8c6c80..7fc23cf 100644
+--- a/trackeval/metrics/identity.py
++++ b/trackeval/metrics/identity.py
+@@ -80,9 +80,9 @@ class Identity(_BaseMetric):
+         match_rows, match_cols = linear_sum_assignment(fn_mat + fp_mat)
+ 
+         # Accumulate basic statistics
+-        res['IDFN'] = fn_mat[match_rows, match_cols].sum().astype(np.int)
+-        res['IDFP'] = fp_mat[match_rows, match_cols].sum().astype(np.int)
+-        res['IDTP'] = (gt_id_count.sum() - res['IDFN']).astype(np.int)
++        res['IDFN'] = fn_mat[match_rows, match_cols].sum().astype(int)
++        res['IDFP'] = fp_mat[match_rows, match_cols].sum().astype(int)
++        res['IDTP'] = (gt_id_count.sum() - res['IDFN']).astype(int)
+ 
+         # Calculate final ID scores
+         res = self._compute_final_fields(res)
+diff --git a/trackeval/metrics/j_and_f.py b/trackeval/metrics/j_and_f.py
+index 1b18f04..8c5d1d9 100644
+--- a/trackeval/metrics/j_and_f.py
++++ b/trackeval/metrics/j_and_f.py
+@@ -160,7 +160,7 @@ class JAndF(_BaseMetric):
+          January 2003
+         """
+ 
+-        seg = seg.astype(np.bool)
++        seg = seg.astype(bool)
+         seg[seg > 0] = 1
+ 
+         assert np.atleast_3d(seg).shape[2] == 1
+diff --git a/trackeval/metrics/track_map.py b/trackeval/metrics/track_map.py
+index 039f890..a4c67f8 100644
+--- a/trackeval/metrics/track_map.py
++++ b/trackeval/metrics/track_map.py
+@@ -220,8 +220,8 @@ class TrackMAP(_BaseMetric):
+             tps = np.logical_and(dt_m != -1, np.logical_not(dt_ig))
+             fps = np.logical_and(dt_m == -1, np.logical_not(dt_ig))
+ 
+-            tp_sum = np.cumsum(tps, axis=1).astype(dtype=np.float)
+-            fp_sum = np.cumsum(fps, axis=1).astype(dtype=np.float)
++            tp_sum = np.cumsum(tps, axis=1).astype(dtype=float)
++            fp_sum = np.cumsum(fps, axis=1).astype(dtype=float)
+ 
+             for iou_thr_idx, (tp, fp) in enumerate(zip(tp_sum, fp_sum)):
+                 tp = np.array(tp)
+@@ -259,8 +259,8 @@ class TrackMAP(_BaseMetric):
+ 
+         # compute the precision and recall averages for the respective alpha thresholds and ignore masks
+         for lbl in self.lbls:
+-            res['AP_' + lbl] = np.zeros((len(self.array_labels)), dtype=np.float)
+-            res['AR_' + lbl] = np.zeros((len(self.array_labels)), dtype=np.float)
++            res['AP_' + lbl] = np.zeros((len(self.array_labels)), dtype=float)
++            res['AR_' + lbl] = np.zeros((len(self.array_labels)), dtype=float)
+ 
+         for a_id, alpha in enumerate(self.array_labels):
+             for lbl_idx, lbl in enumerate(self.lbls):
+@@ -280,7 +280,7 @@ class TrackMAP(_BaseMetric):
+         """
+         res = {}
+         for field in self.fields:
+-            res[field] = np.zeros((len(self.array_labels)), dtype=np.float)
++            res[field] = np.zeros((len(self.array_labels)), dtype=float)
+             field_stacked = np.array([res[field] for res in all_res.values()])
+ 
+             for a_id, alpha in enumerate(self.array_labels):
+@@ -297,7 +297,7 @@ class TrackMAP(_BaseMetric):
+ 
+         res = {}
+         for field in self.fields:
+-            res[field] = np.zeros((len(self.array_labels)), dtype=np.float)
++            res[field] = np.zeros((len(self.array_labels)), dtype=float)
+             field_stacked = np.array([res[field] for res in all_res.values()])
+ 
+             for a_id, alpha in enumerate(self.array_labels):

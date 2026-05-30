@@ -1,0 +1,27 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install package (CPU)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Unit tests
+        # Unit tests are GPU-free: model backends are monkeypatched and the VRAM
+        # guard is a no-op without CUDA. The full-pipeline integration test is
+        # skipped (needs the upstream YACHIYO clone + GPU).
+        run: pytest tests/unit -q
