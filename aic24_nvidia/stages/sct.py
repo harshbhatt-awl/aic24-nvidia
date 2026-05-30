@@ -2,6 +2,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import sys
 from pathlib import Path
 
 from ..bootstrap import patch_scene_camera_map
@@ -79,7 +80,7 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
 
         with open(log_path, "w") as lf:
             proc = subprocess.run(
-                ["python", "tracking/infer.py", "-s", str(SCENE_INT), "-scpt"],
+                [sys.executable, "tracking/infer.py", "-s", str(SCENE_INT), "-scpt"],
                 cwd=yachiyo,
                 stdout=lf, stderr=subprocess.STDOUT,
             )

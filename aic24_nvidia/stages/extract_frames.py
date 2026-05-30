@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 import subprocess
+import sys
 from pathlib import Path
 
 from ..config import Config
@@ -54,7 +55,7 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
         # points that at the adapted tree (applied before this body runs).
         with open(log_path, "w") as lf:
             proc = subprocess.run(
-                ["python3", "tools/extract_frame.py", "-s", scene_name, "./"],
+                [sys.executable, "tools/extract_frame.py", "-s", scene_name, "./"],
                 cwd=yachiyo,
                 stdout=lf, stderr=subprocess.STDOUT,
             )

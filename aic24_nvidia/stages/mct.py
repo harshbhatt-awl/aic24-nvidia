@@ -3,6 +3,7 @@ import json
 import logging
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from ..config import Config
@@ -123,7 +124,7 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
 
         with open(log_path, "w") as lf:
             proc = subprocess.run(
-                ["python", "tracking/infer.py", "-s", str(SCENE_INT), "-mcpt"],
+                [sys.executable, "tracking/infer.py", "-s", str(SCENE_INT), "-mcpt"],
                 cwd=yachiyo,
                 stdout=lf, stderr=subprocess.STDOUT,
             )
