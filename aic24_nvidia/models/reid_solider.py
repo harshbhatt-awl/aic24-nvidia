@@ -65,6 +65,52 @@ def _embed(crop: Image.Image) -> np.ndarray:
     return feat.cpu().numpy()[0].astype(np.float32)
 
 
+class SoliderReID:
+    """Default ReIDBackend: SOLIDER Swin-Small, 768-d embeddings.
+
+    Mirrors _get_transform + _embed's lazy load. Default weights resolve to
+    <weights_root>/solider_swin_small.pth (same file the module-relative path
+    used when run from the repo root).
+    """
+
+    def __init__(self) -> None:
+        self._model = None
+        self._transform = None
+
+    def load(self, cfg, weights_root) -> None:
+        import torch
+        import torchvision.transforms as T
+        from aic24_nvidia.models.solider import (
+            SOLIDER_MEAN, SOLIDER_SIZE, SOLIDER_STD, load_solider_swin_small,
+        )
+        weights = weights_root / (cfg.weights or "solider_swin_small.pth")
+        self._model = load_solider_swin_small(weights)
+        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self._model.eval().to(dev)
+        self._transform = T.Compose([
+            T.Resize(list(SOLIDER_SIZE)),
+            T.ToTensor(),
+            T.Normalize(mean=list(SOLIDER_MEAN), std=list(SOLIDER_STD)),
+        ])
+
+    def embed(self, crop):
+        import torch
+        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        x = self._transform(crop.convert("RGB")).unsqueeze(0).to(dev)
+        with torch.no_grad():
+            feat = self._model(x)
+        return feat.cpu().numpy()[0].astype(np.float32)
+
+    def teardown(self) -> None:
+        self._model = None
+        self._transform = None
+        import gc
+        import torch
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+
 def extract_camera(
     det_scene_dir,
     original_scene_dir,
