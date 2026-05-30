@@ -99,6 +99,45 @@ def _estimate(img, bboxes):
     return out
 
 
+class RTMPoseBackend:
+    """Default PoseBackend: RTMPose-l body7 256x192 ONNX. Mirrors _estimate's
+    lazy load. Default model is the bundled URL; a cfg.weights override is a
+    local .onnx path resolved against weights_root."""
+
+    INPUT_SIZE = (192, 256)  # (W, H)
+
+    def __init__(self) -> None:
+        self._model = None
+
+    def load(self, cfg, weights_root) -> None:
+        import torch
+        from rtmlib import RTMPose
+        onnx = str(weights_root / cfg.weights) if cfg.weights else _RTMPOSE_L_URL
+        dev = "cuda" if torch.cuda.is_available() else "cpu"
+        self._model = RTMPose(
+            onnx_model=onnx, model_input_size=self.INPUT_SIZE,
+            backend="onnxruntime", device=dev,
+        )
+
+    def estimate(self, img, bboxes):
+        keypoints, scores = self._model(img, bboxes=np.array(bboxes, dtype=np.float32))
+        out = []
+        for kp, sc in zip(keypoints, scores):
+            out.append([[float(x), float(y), float(s)] for (x, y), s in zip(kp, sc)])
+        return out
+
+    def teardown(self) -> None:
+        self._model = None
+        import gc
+        gc.collect()
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
+
+
 def _release_gpu():
     global _MODEL
     _MODEL = None
