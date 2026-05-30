@@ -2,6 +2,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 from aic24_nvidia import hub
 
 
@@ -97,3 +99,12 @@ def test_build_compare_cmd():
     assert hub.build_compare_cmd() == [sys.executable, "experiments/compare.py"]
     assert hub.build_compare_cmd("mct_world.HOTA") == [
         sys.executable, "experiments/compare.py", "--sort-by", "mct_world.HOTA"]
+
+
+def test_require_interactive_missing_dep_exits_with_hint(monkeypatch, capsys):
+    # Make `import questionary` raise ImportError without uninstalling it.
+    monkeypatch.setitem(sys.modules, "questionary", None)
+    with pytest.raises(SystemExit) as exc:
+        hub._require_interactive()
+    assert exc.value.code == 2
+    assert 'pip install -e ".[hub]"' in capsys.readouterr().err

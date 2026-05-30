@@ -122,3 +122,163 @@ def build_compare_cmd(sort_by: str | None = None) -> list[str]:
     if sort_by:
         cmd += ["--sort-by", sort_by]
     return cmd
+
+
+def _require_interactive():
+    """Import the optional interactive deps, or exit(2) with an install hint."""
+    try:
+        import questionary
+    except ImportError as e:
+        print(
+            'interactive hub needs extra deps:\n  pip install -e ".[hub]"',
+            file=sys.stderr,
+        )
+        raise SystemExit(2) from e
+    return questionary
+
+
+def _run(argv_lists: list[list[str]], console) -> int:
+    """Run each argv under the hub's interpreter from the repo root, streaming
+    output live. Stops on the first non-zero exit."""
+    import subprocess
+    for argv in argv_lists:
+        console.print(f"[bold cyan]$ {' '.join(argv)}[/]")
+        rc = subprocess.run(argv, cwd=str(_REPO_ROOT)).returncode
+        if rc != 0:
+            console.print(f"[red]command failed (rc={rc})[/]")
+            return rc
+    console.print("[green]done[/]")
+    return 0
+
+
+def _flow_run_pipeline(q, console):
+    configs = sorted((_REPO_ROOT / "configs").glob("*.yaml"))
+    if not configs:
+        console.print("[red]no configs/*.yaml found[/]")
+        return
+    cfg = q.select("Config:", choices=[str(c.relative_to(_REPO_ROOT)) for c in configs]).ask()
+    if not cfg:
+        return
+    mode = q.select("Stages:", choices=["Run all", "Pick stages"]).ask()
+    if not mode:
+        return
+    stages = None
+    if mode == "Pick stages":
+        stages = q.checkbox("Select stages:", choices=_stage_order()).ask()
+        if not stages:
+            return
+    run_id = (q.text("Run-id (blank = auto):").ask() or "").strip() or None
+    force = q.confirm("Force re-run?", default=False).ask()
+    cmds = build_pipeline_cmd(Path(cfg), stages, run_id, force)
+    from rich.panel import Panel
+    console.print(Panel("\n".join(" ".join(c) for c in cmds), title="will run"))
+    if q.confirm("Proceed?", default=True).ask():
+        _run(cmds, console)
+
+
+def _flow_experiments(q, console):
+    action = q.select(
+        "Experiments:",
+        choices=["list", "status", "ensure-baseline", "run", "compare", "Back"],
+    ).ask()
+    if action in (None, "Back"):
+        return
+    if action == "compare":
+        sort_by = (q.text("--sort-by (blank = default):").ask() or "").strip() or None
+        _run([build_compare_cmd(sort_by)], console)
+        return
+    if action == "run":
+        if str(_REPO_ROOT) not in sys.path:
+            sys.path.insert(0, str(_REPO_ROOT))
+        from experiments._lib import load_registry
+        exps = load_registry(_REPO_ROOT / "experiments" / "registry.yaml")
+        if not exps:
+            console.print("[red]no experiments defined[/]")
+            return
+        exp = q.select("Experiment:", choices=[e["id"] for e in exps]).ask()
+        if not exp:
+            return
+        chosen = next(e for e in exps if e["id"] == exp)
+        variant = q.select(
+            "Variant:", choices=["(all)"] + [v["name"] for v in chosen["variants"]]
+        ).ask()
+        if not variant:
+            return
+        force = q.confirm("Force?", default=False).ask()
+        cmd = build_experiment_cmd(
+            "run", experiment=exp,
+            variant=(None if variant == "(all)" else variant), force=force,
+        )
+        _run([cmd], console)
+        return
+    force = q.confirm("Force rebuild?", default=False).ask() if action == "ensure-baseline" else False
+    _run([build_experiment_cmd(action, force=force)], console)
+
+
+def _flow_browse_runs(console):
+    from rich.table import Table
+    runs = discover_runs(_REPO_ROOT / "outputs")
+    if not runs:
+        console.print("[yellow]no runs under outputs/[/]")
+        return
+    t = Table(title="runs")
+    for col in ("run_id", "stages", "status", "image HOTA", "world HOTA", "finished"):
+        t.add_column(col)
+    for r in runs:
+        stages = "".join("✓" if r.stages_present.get(s) else "·" for s in _stage_order())
+        t.add_row(
+            r.run_id, stages, r.status,
+            f"{r.image_hota:.4f}" if r.image_hota is not None else "-",
+            f"{r.world_hota:.4f}" if r.world_hota is not None else "-",
+            r.finished_at or "-",
+        )
+    console.print(t)
+
+
+def _flow_visualize(q, console):
+    runs = discover_runs(_REPO_ROOT / "outputs")
+    if not runs:
+        console.print("[yellow]no runs under outputs/[/]")
+        return
+    run_id = q.select("Run-id:", choices=[r.run_id for r in runs]).ask()
+    if not run_id:
+        return
+    stage = q.select("Stage:", choices=["detect", "sct", "mct"]).ask()
+    if not stage:
+        return
+    run_cfg = _REPO_ROOT / "outputs" / run_id / "_config.yaml"
+    if run_cfg.exists():
+        cfg = str(run_cfg.relative_to(_REPO_ROOT))
+    else:
+        configs = sorted((_REPO_ROOT / "configs").glob("*.yaml"))
+        cfg = q.select("Config:", choices=[str(c.relative_to(_REPO_ROOT)) for c in configs]).ask()
+        if not cfg:
+            return
+    _run([[sys.executable, "pipeline.py", "viz",
+           "--config", cfg, "--run-id", run_id, "--stage", stage]], console)
+
+
+def _flow_dashboard(q, console):
+    port = (q.text("Port:", default="8501").ask() or "").strip()
+    if not port:
+        return
+    _run([[sys.executable, "pipeline.py", "dashboard", "--port", port]], console)
+
+
+def run_hub() -> None:
+    q = _require_interactive()
+    from rich.console import Console
+    console = Console()
+    flows = {
+        "Run pipeline": lambda: _flow_run_pipeline(q, console),
+        "Experiments": lambda: _flow_experiments(q, console),
+        "Browse runs": lambda: _flow_browse_runs(console),
+        "Visualize": lambda: _flow_visualize(q, console),
+        "Dashboard": lambda: _flow_dashboard(q, console),
+    }
+    while True:
+        choice = q.select("aic24 — operations hub",
+                          choices=[*flows.keys(), "Quit"]).ask()
+        if choice in (None, "Quit"):
+            break
+        flows[choice]()
