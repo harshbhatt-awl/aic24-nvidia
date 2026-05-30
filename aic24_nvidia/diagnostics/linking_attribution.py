@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 from collections import defaultdict
 from dataclasses import dataclass
@@ -100,3 +101,41 @@ def reconcile(tracks: list[Track], short_track_th: int, keypoint_condition_th: i
             mismatch += t.n_detections
     return {"kept": kept, "dropped": dropped, "totals": totals,
             "kept_linked_mismatch": mismatch}
+
+
+def format_table(per_cam: dict, totals: dict) -> str:
+    cols = [E1_SHORT, E2_KEYPOINT, G0_UNTRACKED, KEPT]
+    head = f"{'camera':<8}" + "".join(f"{c:>16}" for c in cols)
+    lines = [head, "-" * len(head)]
+    for cam in sorted(per_cam):
+        row = f"{cam:<8}" + "".join(f"{per_cam[cam].get(c, 0):>16}" for c in cols)
+        lines.append(row)
+    lines.append("-" * len(head))
+    lines.append(f"{'ALL':<8}" + "".join(f"{totals.get(c, 0):>16}" for c in cols))
+    dropped = sum(totals.get(c, 0) for c in (G0_UNTRACKED, E1_SHORT, E2_KEYPOINT))
+    lines.append(f"\ndropped (G0+E1+E2) = {dropped} | kept = {totals.get(KEPT, 0)}")
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(description="Attribute MCT-dropped detections to eligibility gates.")
+    p.add_argument("--mct-dir", required=True,
+                   help="path to outputs/<run>/mct/scene_001 (holds whole_tracking_results.json + representative_nodes_scene1.json)")
+    p.add_argument("--short-track-th", type=int, default=120)
+    p.add_argument("--keypoint-condition-th", type=int, default=1)
+    args = p.parse_args(argv)
+
+    mct = Path(args.mct_dir)
+    tracks = load_tracks(mct / "whole_tracking_results.json",
+                         mct / "representative_nodes_scene1.json")
+    per_cam, totals = attribute(tracks, args.short_track_th, args.keypoint_condition_th)
+    rep = reconcile(tracks, args.short_track_th, args.keypoint_condition_th)
+    print(format_table(per_cam, totals))
+    if rep["kept_linked_mismatch"]:
+        print(f"WARNING: kept/linked mismatch on {rep['kept_linked_mismatch']} detections "
+              "(the kept<->eligible invariant did not hold for this run)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

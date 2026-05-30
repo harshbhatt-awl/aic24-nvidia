@@ -110,3 +110,16 @@ def test_reconcile_flags_clean_when_kept_matches_linked():
     assert rep["dropped"] == 85          # 30+40+10+5
     assert rep["kept"] == 100
     assert rep["kept_linked_mismatch"] == 0   # classify==KEPT iff linked, on this fixture
+
+
+from aic24_nvidia.diagnostics.linking_attribution import format_table
+
+
+def test_format_table_contains_gate_columns_and_totals():
+    per_cam, totals = attribute(_tracks(), short_track_th=120, keypoint_condition_th=1)
+    text = format_table(per_cam, totals)
+    assert "E2_keypoint" in text
+    assert "E1_short_track" in text
+    assert "ALL" in text
+    # the kept total (100) and an E1 total (40) appear in the rendered table
+    assert "100" in text and "40" in text
