@@ -30,6 +30,11 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
 ]
+hub = [
+    "questionary>=2.0",
+    "prompt_toolkit>=3.0",
+    "rich>=13",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
