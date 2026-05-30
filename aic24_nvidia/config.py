@@ -17,16 +17,22 @@ class ClipCfg:
 class DetectCfg:
     conf_thresh: float
     nms_iou: float
+    model_name: str = "yolo11x"
+    weights: str | None = None
 
 
 @dataclass(frozen=True)
 class ReidCfg:
     similarity_thresh: float
+    model_name: str = "solider_swin_small"
+    weights: str | None = None
 
 
 @dataclass(frozen=True)
 class PoseCfg:
     keypoint_conf: float
+    model_name: str = "rtmpose-l"
+    weights: str | None = None
 
 
 @dataclass(frozen=True)
@@ -155,6 +161,27 @@ def load_config(path: Path) -> Config:
     world_smoothing = WorldSmoothingCfg(method=ws_method, ema_alpha=ws_alpha)
     tracking_params = MappingProxyType(dict(body.get("tracking_params") or {}))
 
+    detect_cfg = DetectCfg(**body["detect"])
+    reid_cfg = ReidCfg(**body["reid"])
+    pose_cfg = PoseCfg(**body["pose"])
+
+    from .models import registry as _model_registry
+    if detect_cfg.model_name not in _model_registry.DETECTORS:
+        raise ConfigError(
+            f"detect.model_name must be one of {_model_registry.detector_names()}, "
+            f"got {detect_cfg.model_name!r}"
+        )
+    if reid_cfg.model_name not in _model_registry.REIDS:
+        raise ConfigError(
+            f"reid.model_name must be one of {_model_registry.reid_names()}, "
+            f"got {reid_cfg.model_name!r}"
+        )
+    if pose_cfg.model_name not in _model_registry.POSES:
+        raise ConfigError(
+            f"pose.model_name must be one of {_model_registry.pose_names()}, "
+            f"got {pose_cfg.model_name!r}"
+        )
+
     return Config(
         scene=body["scene"],
         data_root=Path(body["data_root"]).resolve(),
@@ -162,9 +189,9 @@ def load_config(path: Path) -> Config:
         outputs_root=Path(body["outputs_root"]).resolve(),
         external_root=Path(body["external_root"]).resolve(),
         clip=clip,
-        detect=DetectCfg(**body["detect"]),
-        reid=ReidCfg(**body["reid"]),
-        pose=PoseCfg(**body["pose"]),
+        detect=detect_cfg,
+        reid=reid_cfg,
+        pose=pose_cfg,
         sct=SctCfg(**body["sct"]),
         mct=mct,
         eval=eval_cfg,
