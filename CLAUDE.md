@@ -99,6 +99,10 @@ python scripts/results.py add <run_id>  # record one run (archive_run.sh calls t
 python scripts/results.py render        # re-render results/README.md from runs.jsonl
 ```
 
+Runs **auto-record** into the ledger after `evaluate` (a `pipeline.py` hook), so
+normally you never run these by hand — `scan` is for back-filling ad-hoc/archived
+runs or after manual edits.
+
 `results/` is a durable, git-tracked ledger: `runs.jsonl` (one record/run — image
 `COMBINED` + scene `mct_world` metrics, a config fingerprint harvested from stage
 manifests, date, runtime, archived-location) renders to `results/README.md` with

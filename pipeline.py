@@ -15,6 +15,24 @@ logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("pipeline")
 
+REPO_ROOT = Path(__file__).resolve().parent
+
+
+def _record_run_to_ledger(run_id: str, rd: Path) -> None:
+    """Auto-record a completed run into the durable results ledger (best-effort).
+
+    Called after `evaluate` produces metrics, so results land in results/ without
+    anyone running `scripts/results.py` by hand. A no-op if there's no metrics
+    yet, and it never raises — bookkeeping must not fail the pipeline.
+    """
+    try:
+        from aic24_nvidia import results
+        if results.record_run(run_id, repo_root=REPO_ROOT, run_dir=rd) is not None:
+            log.info("results ledger updated (run_id=%s)", run_id)
+    except Exception as e:
+        log.warning("results ledger update skipped: %s", e)
+
+
 def _gate_stage(stage: str, rd: Path, force: bool) -> bool:
     upstream = [stage_dir(rd, registry.dir_name(u)) / "manifest.json"
                 for u in registry.upstream_of(stage)]
@@ -51,6 +69,8 @@ def cmd_stage(stage: str, args) -> None:
     if not _gate_stage(stage, rd, force=args.force):
         return
     registry.by_name(stage).run(cfg, rd, run_id)
+    if stage == "evaluate":
+        _record_run_to_ledger(run_id, rd)
 
 
 def cmd_all(args) -> None:
@@ -63,6 +83,7 @@ def cmd_all(args) -> None:
         if not _gate_stage(s, rd, force=args.force):
             continue
         registry.by_name(s).run(cfg, rd, run_id)
+    _record_run_to_ledger(run_id, rd)
 
 
 def cmd_bootstrap(args) -> None:

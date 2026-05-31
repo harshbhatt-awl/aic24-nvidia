@@ -419,3 +419,110 @@ def render_markdown(
         out.append("")
 
     return "\n".join(out).rstrip() + "\n"
+
+
+# --------------------------------------------------------------------------- #
+# Orchestration — the IO/wiring layer shared by the CLI and the pipeline hook.
+# (The functions above are pure + unit-tested; these read the repo layout.)
+# --------------------------------------------------------------------------- #
+
+
+def ledger_paths(repo_root: Path | str) -> tuple[Path, Path]:
+    """``(runs.jsonl, README.md)`` under ``<repo_root>/results/``."""
+    base = Path(repo_root) / "results"
+    return base / "runs.jsonl", base / "README.md"
+
+
+def repo_known_experiments(repo_root: Path | str) -> frozenset[str]:
+    """Experiment ids from ``experiments/registry.yaml`` (empty if unavailable)."""
+    try:
+        import yaml
+
+        path = Path(repo_root) / "experiments" / "registry.yaml"
+        body = yaml.safe_load(path.read_text()) or {}
+        return frozenset(e["id"] for e in (body.get("experiments") or []))
+    except Exception:
+        return frozenset()
+
+
+def repo_labels(repo_root: Path | str) -> dict:
+    """Curated run labels from ``results/labels.json`` (empty if absent/bad)."""
+    p = Path(repo_root) / "results" / "labels.json"
+    try:
+        return json.loads(p.read_text()) if p.exists() else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def repo_git(repo_root: Path | str) -> dict:
+    """Best-effort current branch/commit; values are None if git is unavailable."""
+    import subprocess
+
+    def g(*args: str) -> str | None:
+        try:
+            r = subprocess.run(
+                ["git", *args], capture_output=True, text=True, cwd=str(repo_root), timeout=5
+            )
+            return r.stdout.strip() or None
+        except (OSError, subprocess.SubprocessError):
+            return None
+
+    return {"branch": g("rev-parse", "--abbrev-ref", "HEAD"), "commit": g("rev-parse", "--short", "HEAD")}
+
+
+def _write_views(repo_root: Path | str, records: list[RunRecord]) -> None:
+    ledger, readme = ledger_paths(repo_root)
+    save_ledger(ledger, records)
+    readme.parent.mkdir(parents=True, exist_ok=True)
+    readme.write_text(render_markdown(records))
+
+
+def record_run(
+    run_id: str,
+    *,
+    repo_root: Path | str,
+    run_dir: Path | str | None = None,
+    archived: dict | None = None,
+) -> RunRecord | None:
+    """Record one run into the ledger and re-render the README.
+
+    Returns the RunRecord, or None (no-op) when the run has no metrics yet — so it
+    is safe to call after *any* stage. This is the single wiring point shared by
+    the CLI (`results.py add`) and the pipeline's post-evaluate hook.
+    """
+    repo_root = Path(repo_root)
+    run_dir = Path(run_dir) if run_dir is not None else repo_root / "outputs" / run_id
+    rec = extract_record(
+        run_dir,
+        known_experiments=repo_known_experiments(repo_root),
+        labels=repo_labels(repo_root),
+        git=repo_git(repo_root),
+        archived=archived,
+    )
+    if rec is None:
+        return None
+    ledger, _ = ledger_paths(repo_root)
+    records = upsert(load_ledger(ledger), rec)
+    _write_views(repo_root, records)
+    return rec
+
+
+def scan_outputs(repo_root: Path | str) -> int:
+    """Record every ``outputs/*/evaluate`` run and refresh the README.
+
+    Returns the number of runs recorded this pass.
+    """
+    repo_root = Path(repo_root)
+    known = repo_known_experiments(repo_root)
+    labels = repo_labels(repo_root)
+    git = repo_git(repo_root)
+    ledger, _ = ledger_paths(repo_root)
+    records = load_ledger(ledger)
+    n = 0
+    for ev in sorted((repo_root / "outputs").glob("*/evaluate/metrics.json")):
+        rec = extract_record(ev.parent.parent, known_experiments=known, labels=labels, git=git)
+        if rec is not None:
+            records = upsert(records, rec)
+            n += 1
+    _write_views(repo_root, records)
+    return n

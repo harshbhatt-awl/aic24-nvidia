@@ -122,6 +122,20 @@ So the ledger captures the results (and the OneDrive location) before the bytes
 leave the disk. The CLI tolerates a bare (non-venv) `python` — registry/label
 lookups degrade to empty, metric extraction still works.
 
+### Automatic recording (no manual step)
+
+`pipeline.py` records the run into the ledger automatically the moment `evaluate`
+produces metrics — `cmd_all` (after the stage loop) and `cmd_stage` (when the
+stage is `evaluate`) call `results.record_run(run_id, repo_root, run_dir)`. It is
+best-effort (wrapped; never fails a run) and a no-op when there are no metrics, so
+running a non-evaluate stage alone touches nothing. The experiment harness shells
+`pipeline.py`, so sweep variants auto-record too. `scripts/results.py scan`
+remains for back-filling ad-hoc/archived runs or after manual edits.
+
+The repo wiring (registry ids, `labels.json`, git, paths) lives once in
+`aic24_nvidia/results.py` (`record_run` / `scan_outputs`); both the CLI and the
+pipeline hook call it, so there is no duplicated extraction logic.
+
 ## Non-goals (YAGNI)
 
 - No `pipeline.py results` subcommand yet (standalone script is enough; can add

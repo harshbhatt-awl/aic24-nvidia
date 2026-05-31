@@ -124,3 +124,30 @@ def test_render_markdown_has_both_views_and_deltas(tmp_path):
     assert "### (baseline)" in md and "### eps_mcpt_sweep" in md
     assert "0.6000" in md           # baseline world HOTA rendered
     assert "0.050" in md            # variant Δw magnitude (0.55 − 0.60)
+
+
+def test_record_run_writes_ledger_and_readme(tmp_path):
+    # repo layout: <repo>/outputs/<run_id>/...  ->  <repo>/results/{runs.jsonl,README.md}
+    _make_run(tmp_path / "outputs", "baseline")
+    rec = R.record_run("baseline", repo_root=tmp_path)
+    assert rec is not None and rec.run_id == "baseline"
+    ledger, readme = R.ledger_paths(tmp_path)
+    assert ledger.exists() and readme.exists()
+    assert "baseline" in readme.read_text()
+    assert len(R.load_ledger(ledger)) == 1
+
+
+def test_record_run_noop_without_metrics(tmp_path):
+    (tmp_path / "outputs" / "x").mkdir(parents=True)
+    assert R.record_run("x", repo_root=tmp_path) is None
+    # nothing written when there's nothing to record
+    ledger, _ = R.ledger_paths(tmp_path)
+    assert R.load_ledger(ledger) == []
+
+
+def test_scan_outputs_records_all(tmp_path):
+    _make_run(tmp_path / "outputs", "baseline")
+    _make_run(tmp_path / "outputs", "v2_solider", world_hota=0.34)
+    assert R.scan_outputs(tmp_path) == 2
+    ledger, _ = R.ledger_paths(tmp_path)
+    assert {r.run_id for r in R.load_ledger(ledger)} == {"baseline", "v2_solider"}
