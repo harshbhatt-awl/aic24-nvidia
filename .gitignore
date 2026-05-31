@@ -12,6 +12,7 @@ data/
 weights/
 outputs/
 external/
+.archive-tmp/
 
 # editor
 .vscode/

@@ -111,9 +111,11 @@ for run_id in "${RUN_IDS[@]}"; do
   # time and delete the temp right after upload, so no permanent disk is used.
   tmp_tar="$TMP_ROOT/aic24-archive-$run_id.tar.zst"
   avail=$(df -B1 --output=avail "$TMP_ROOT" | tail -1 | tr -d ' ')
-  if [ "$avail" -lt "$nbytes" ]; then
-    echo "   ERROR: only $(human "$avail") free in $TMP_ROOT, need ~$(human "$nbytes") to stage." >&2
-    echo "   Set AIC24_ARCHIVE_TMP to a dir with room and retry." >&2
+  needed=$(( nbytes + 1073741824 ))   # run size + ~1 GiB headroom (tar overhead; tmpfs is shared)
+  if [ "$avail" -lt "$needed" ]; then
+    echo "   ERROR: only $(human "$avail") free in $TMP_ROOT, need ~$(human "$needed") to stage $run_id." >&2
+    echo "   ($TMP_ROOT may be tmpfs/RAM.) Point AIC24_ARCHIVE_TMP at a disk dir with room and retry:" >&2
+    echo "     AIC24_ARCHIVE_TMP=\$PWD/.archive-tmp scripts/archive_run.sh $run_id --yes" >&2
     exit 1
   fi
   trap 'rm -f "$tmp_tar"' EXIT
