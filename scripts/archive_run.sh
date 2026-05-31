@@ -6,12 +6,13 @@
 #   * A run dir is ~3-4 GB across *tens of thousands* of small files (frames,
 #     per-frame detections/embeddings). OneDrive throttles small-file storms
 #     (HTTP 429) and a live FUSE mount of it is slow/fragile — so we pack each
-#     run into ONE stream and push that instead of thousands of objects.
-#   * The disk is usually nearly full (that's *why* you're archiving), so we
-#     NEVER stage a multi-GB tarball on local disk: we stream
-#         tar -> zstd -> rclone rcat
-#     straight to the remote, then verify by streaming it back through `zstd -t`
-#     (no local scratch space either), and only then delete the local run.
+#     run into ONE tarball and push that instead of thousands of objects.
+#   * We stage the tarball to a temp dir ($AIC24_ARCHIVE_TMP or /tmp — tmpfs on
+#     most boxes, i.e. RAM not the full disk) and `rclone copy` it: a real-file
+#     copy is chunked, resumable and hash-verified, whereas `rclone rcat`
+#     streaming hangs on multi-GB uploads to OneDrive (the upload-session
+#     finalize stalls). One run is staged at a time and its temp is deleted right
+#     after upload, so no *permanent* local disk is consumed.
 #   * After a run is archived its local dir is replaced by a small
 #     `<run_id>.archived.json` stub recording where it went — `restore_run.sh`
 #     reads that to pull it back.
@@ -22,12 +23,13 @@
 #
 # Flags:
 #   --yes           delete the local run without the interactive confirm
-#   --keep-local    upload + verify but DON'T delete the local copy (backup mode)
-#   --no-verify     skip the stream-back integrity check (faster, less safe)
+#   --keep-local    upload but DON'T delete the local copy (backup mode)
+#   --no-verify     skip the local `zstd -t` integrity check (faster, less safe)
 #   --force         allow archiving "baseline" (NORMALLY REFUSED — experiments/
 #                   symlinks its upstream stages from outputs/baseline/)
 #   --remote NAME   rclone remote   (default: $AIC24_RCLONE_REMOTE or "onedrive")
 #   --dest PATH     remote dir      (default: aic24/outputs-archive)
+#   staging dir is $AIC24_ARCHIVE_TMP or $TMPDIR or /tmp (needs room for one tarball)
 #
 # Restore later with: scripts/restore_run.sh <run_id>
 set -euo pipefail
@@ -37,6 +39,7 @@ OUTPUTS="$REPO_ROOT/outputs"
 PY="python"; [ -x "$REPO_ROOT/.venv/bin/python" ] && PY="$REPO_ROOT/.venv/bin/python"
 REMOTE="${AIC24_RCLONE_REMOTE:-onedrive}"
 DEST="aic24/outputs-archive"
+TMP_ROOT="${AIC24_ARCHIVE_TMP:-${TMPDIR:-/tmp}}"
 ASSUME_YES=0
 KEEP_LOCAL=0
 VERIFY=1
@@ -102,19 +105,35 @@ for run_id in "${RUN_IDS[@]}"; do
   nbytes=$(du -sb "$dir" | cut -f1)
   echo "   $(human "$nbytes") across ${nfiles} files  →  ${remote_path}"
 
-  # Stream straight to the remote — NO local staging file (disk is tight).
-  echo "   uploading (tar | zstd -T0 -3 | rclone rcat)..."
-  tar -C "$OUTPUTS" -cf - "$run_id" | zstd -q -T0 -3 | rclone rcat "$remote_path" -P
-
-  remote_bytes=$(rclone size --json "$remote_path" | python -c 'import sys,json;print(json.load(sys.stdin)["bytes"])')
-  echo "   uploaded: $(human "$remote_bytes")"
-  [ "$remote_bytes" -gt 0 ] || { echo "   ERROR: remote object is empty — NOT deleting local" >&2; exit 1; }
-
-  if [ "$VERIFY" -eq 1 ]; then
-    echo "   verifying (stream back through zstd -t)..."
-    rclone cat "$remote_path" | zstd -t -  # exits non-zero (set -e) if corrupt/truncated
-    echo "   integrity OK"
+  # Stage the tarball to $TMP_ROOT, then `rclone copy` it. rclone rcat hangs on
+  # multi-GB streamed uploads to OneDrive (upload-session finalize stalls); a
+  # real-file copy is chunked, resumable and hash-verified. We stage one run at a
+  # time and delete the temp right after upload, so no permanent disk is used.
+  tmp_tar="$TMP_ROOT/aic24-archive-$run_id.tar.zst"
+  avail=$(df -B1 --output=avail "$TMP_ROOT" | tail -1 | tr -d ' ')
+  if [ "$avail" -lt "$nbytes" ]; then
+    echo "   ERROR: only $(human "$avail") free in $TMP_ROOT, need ~$(human "$nbytes") to stage." >&2
+    echo "   Set AIC24_ARCHIVE_TMP to a dir with room and retry." >&2
+    exit 1
   fi
+  trap 'rm -f "$tmp_tar"' EXIT
+  echo "   staging tarball → $tmp_tar (tar | zstd -T0 -3)..."
+  tar -C "$OUTPUTS" -cf - "$run_id" | zstd -q -T0 -3 > "$tmp_tar"
+  local_bytes=$(stat -c%s "$tmp_tar")
+  if [ "$VERIFY" -eq 1 ]; then
+    echo "   verifying local archive (zstd -t)..." && zstd -tq "$tmp_tar"
+  fi
+  echo "   uploading $(human "$local_bytes") (rclone copyto, hash-verified)..."
+  rclone copyto "$tmp_tar" "$remote_path" -P
+
+  remote_bytes=$(rclone size --json "$remote_path" | "$PY" -c 'import sys,json;print(json.load(sys.stdin)["bytes"])')
+  echo "   uploaded: $(human "$remote_bytes")"
+  if [ "$remote_bytes" != "$local_bytes" ]; then
+    echo "   ERROR: remote size ($remote_bytes) != local ($local_bytes) — NOT deleting local" >&2
+    exit 1
+  fi
+  rm -f "$tmp_tar"; trap - EXIT
+  echo "   integrity OK (local zstd -t + hash-verified upload + size match)"
 
   # Record where it went BEFORE deleting, so an interrupted delete still leaves a pointer.
   archived_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
