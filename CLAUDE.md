@@ -91,6 +91,36 @@ Data lives at `data/nvidia_mtmc_2024/` (symlinked to `../aic23-nvidia/data/nvidi
 scene is `MTMC_Tracking_2024/val/scene_044/`; `Warehouse_001/` is a flattened symlink view with
 `videos/camera_0390.mp4`..`camera_0396.mp4` (7 cameras), `calibration.json`, `ground_truth.json`.
 
+### Results ledger & run archiving
+
+```bash
+python scripts/results.py scan          # harvest every outputs/*/evaluate into results/
+python scripts/results.py add <run_id>  # record one run (archive_run.sh calls this)
+python scripts/results.py render        # re-render results/README.md from runs.jsonl
+```
+
+`results/` is a durable, git-tracked ledger: `runs.jsonl` (one record/run — image
+`COMBINED` + scene `mct_world` metrics, a config fingerprint harvested from stage
+manifests, date, runtime, archived-location) renders to `results/README.md` with
+**By-day** and **By-experiment** views (Δ vs baseline world HOTA). `labels.json`
+curates names for ad-hoc runs. Distinct from `experiments/compare.py` (a live,
+registry-bound A/B snapshot) — the ledger is the durable cross-time record and
+covers ad-hoc + archived runs. Don't hand-edit `README.md` (generated).
+
+A 30s 7-cam run is ~3 GB / tens of thousands of files. To reclaim disk, archive
+finished runs to OneDrive (needs a one-time `rclone config` for an `onedrive:`
+remote):
+
+```bash
+scripts/archive_run.sh <run_id> [--keep-local] [--yes]   # stream tar|zstd|rclone → verify → free local
+scripts/restore_run.sh <run_id> [--force]                # stream back into outputs/
+```
+
+`archive_run.sh` records the run into the ledger (with its remote path) **before**
+deleting the local copy, so an archived run is never a hole in the results table.
+It hard-refuses `baseline` (the experiment harness symlinks upstream stages from
+`outputs/baseline/`).
+
 ## Hardware
 
 Verified on a 6 GB RTX 3050. Each adapter loads its model then frees GPU memory before the next stage,
