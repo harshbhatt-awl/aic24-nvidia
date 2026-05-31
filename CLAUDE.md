@@ -125,6 +125,11 @@ deleting the local copy, so an archived run is never a hole in the results table
 It hard-refuses `baseline` (the experiment harness symlinks upstream stages from
 `outputs/baseline/`).
 
+`pipeline.py all --archive-after [--keep-local]` runs the archive automatically
+when a run finishes (`--keep-local` uploads but keeps the local copy). Add
+`--viz` to also render the detect/sct/mct videos first — they're included in the
+archive.
+
 ## Hardware
 
 Verified on a 6 GB RTX 3050. Each adapter loads its model then frees GPU memory before the next stage,
