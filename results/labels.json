@@ -1,0 +1,17 @@
+{
+  "v2_solider": {
+    "experiment": "model-stack",
+    "variant": "v2 SOLIDER",
+    "note": "pre-v3 model-stack run (SOLIDER reid)"
+  },
+  "scene041": {
+    "experiment": "generalization",
+    "variant": "scene_041",
+    "note": "unseen-scene generalization check (10 cams 0361-0370)"
+  },
+  "baseline_20260530_134259": {
+    "experiment": "snapshot",
+    "variant": "baseline 2026-05-30",
+    "note": "dated baseline snapshot"
+  }
+}
