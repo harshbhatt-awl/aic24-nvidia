@@ -179,3 +179,41 @@ def test_world_smoothing_alpha_range(tmp_path):
     body["world_smoothing"] = {"method": "ema", "ema_alpha": 1.5}
     with pytest.raises(ConfigError, match="ema_alpha"):
         load_config(_write(tmp_path, body))
+
+
+def test_world_stitch_defaults(tmp_path):
+    body = _minimal(tmp_path)
+    cfg = load_config(_write(tmp_path, body))
+    assert cfg.world_stitch.method == "none"
+    assert cfg.world_stitch.max_gap_frames == 45
+    assert cfg.world_stitch.max_dist_m == pytest.approx(0.6)
+
+
+def test_world_stitch_explicit(tmp_path):
+    body = _minimal(tmp_path)
+    body["world_stitch"] = {"method": "endpoint_gap", "max_gap_frames": 30, "max_dist_m": 0.5}
+    cfg = load_config(_write(tmp_path, body))
+    assert cfg.world_stitch.method == "endpoint_gap"
+    assert cfg.world_stitch.max_gap_frames == 30
+    assert cfg.world_stitch.max_dist_m == pytest.approx(0.5)
+
+
+def test_world_stitch_invalid_method(tmp_path):
+    body = _minimal(tmp_path)
+    body["world_stitch"] = {"method": "magic"}
+    with pytest.raises(ConfigError, match="world_stitch.method"):
+        load_config(_write(tmp_path, body))
+
+
+def test_world_stitch_gap_must_be_positive(tmp_path):
+    body = _minimal(tmp_path)
+    body["world_stitch"] = {"method": "endpoint_gap", "max_gap_frames": 0}
+    with pytest.raises(ConfigError, match="max_gap_frames"):
+        load_config(_write(tmp_path, body))
+
+
+def test_world_stitch_dist_must_be_positive(tmp_path):
+    body = _minimal(tmp_path)
+    body["world_stitch"] = {"method": "endpoint_gap", "max_dist_m": 0.0}
+    with pytest.raises(ConfigError, match="max_dist_m"):
+        load_config(_write(tmp_path, body))

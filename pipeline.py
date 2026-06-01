@@ -15,6 +15,41 @@ logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("pipeline")
 
+REPO_ROOT = Path(__file__).resolve().parent
+
+
+def _record_run_to_ledger(run_id: str, rd: Path) -> None:
+    """Auto-record a completed run into the durable results ledger (best-effort).
+
+    Called after `evaluate` produces metrics, so results land in results/ without
+    anyone running `scripts/results.py` by hand. A no-op if there's no metrics
+    yet, and it never raises — bookkeeping must not fail the pipeline.
+    """
+    try:
+        from aic24_nvidia import results
+        if results.record_run(run_id, repo_root=REPO_ROOT, run_dir=rd) is not None:
+            log.info("results ledger updated (run_id=%s)", run_id)
+    except Exception as e:
+        log.warning("results ledger update skipped: %s", e)
+
+
+def _archive_run(run_id: str, *, keep_local: bool = False) -> None:
+    """Archive a finished run to OneDrive via scripts/archive_run.sh (best-effort).
+
+    With keep_local the run is uploaded but the local copy is kept; otherwise the
+    local run dir is freed after a verified upload. Never raises — a failed
+    archive leaves the run on local disk and logs a warning.
+    """
+    cmd = ["bash", str(REPO_ROOT / "scripts" / "archive_run.sh"), run_id, "--yes"]
+    if keep_local:
+        cmd.append("--keep-local")
+    log.info("archiving run to OneDrive (run_id=%s, keep_local=%s)", run_id, keep_local)
+    try:
+        subprocess.run(cmd, check=True, cwd=str(REPO_ROOT))
+    except subprocess.CalledProcessError as e:
+        log.warning("archive-after failed (rc=%s); local copy kept", e.returncode)
+
+
 def _gate_stage(stage: str, rd: Path, force: bool) -> bool:
     upstream = [stage_dir(rd, registry.dir_name(u)) / "manifest.json"
                 for u in registry.upstream_of(stage)]
@@ -51,6 +86,8 @@ def cmd_stage(stage: str, args) -> None:
     if not _gate_stage(stage, rd, force=args.force):
         return
     registry.by_name(stage).run(cfg, rd, run_id)
+    if stage == "evaluate":
+        _record_run_to_ledger(run_id, rd)
 
 
 def cmd_all(args) -> None:
@@ -63,29 +100,35 @@ def cmd_all(args) -> None:
         if not _gate_stage(s, rd, force=args.force):
             continue
         registry.by_name(s).run(cfg, rd, run_id)
+    _record_run_to_ledger(run_id, rd)
+    if getattr(args, "viz", False):
+        for stage in ("detect", "sct", "mct"):
+            try:
+                log.info("=== viz %s ===", stage)
+                _generate_viz(cfg, rd, stage)
+            except Exception as e:  # one stage's viz failing shouldn't sink the rest
+                log.warning("viz %s skipped: %s", stage, e)
+    if getattr(args, "archive_after", False):
+        _archive_run(run_id, keep_local=getattr(args, "keep_local", False))
 
 
 def cmd_bootstrap(args) -> None:
     subprocess.run(["bash", "scripts/bootstrap_external.sh"], check=True)
 
 
-def cmd_viz(args) -> None:
-    cfg = load_config(args.config)
-    run_id = args.run_id or latest_run_id(cfg.outputs_root, cfg.config_filename)
-    if not run_id:
-        log.error("no run_id and no prior runs"); sys.exit(2)
-    rd = run_dir_for(cfg.outputs_root, run_id)
+def _generate_viz(cfg: Config, rd: Path, stage: str) -> None:
+    """Render the annotated video(s) for one stage (detect / sct / mct)."""
     adapted_root = rd / "adapted"
     scene = "scene_001"
 
-    if args.stage == "detect":
+    if stage == "detect":
         m = read_manifest(rd / "detect" / "manifest.json")
         for cam, paths in m.outputs.items():
             frame_dir = adapted_root / "Original" / scene / cam / "Frame"
             visualize.viz_detect_from_txt(frame_dir, Path(paths["txt"]),
                                           rd / "detect" / f"viz_{cam}.mp4",
                                           fps=cfg.fps)
-    elif args.stage == "sct":
+    elif stage == "sct":
         import re
         m = read_manifest(rd / "sct" / "manifest.json")
         for cam_stem, sct_json in m.outputs.items():
@@ -100,7 +143,7 @@ def cmd_viz(args) -> None:
                 rd / "sct" / f"viz_{cam_name}.mp4",
                 fps=cfg.fps,
             )
-    elif args.stage == "mct":
+    elif stage == "mct":
         m = read_manifest(rd / "mct" / "manifest.json")
         mct_json = Path(m.outputs["global_tracks_json"])
         cam_frame_dirs = {p.name: p / "Frame" for p in sorted((adapted_root / "Original" / scene).glob("camera_*"))}
@@ -110,7 +153,16 @@ def cmd_viz(args) -> None:
             fps=cfg.fps,
         )
     else:
-        log.error("viz not implemented for stage: %s", args.stage); sys.exit(2)
+        raise ValueError(f"viz not implemented for stage: {stage}")
+
+
+def cmd_viz(args) -> None:
+    cfg = load_config(args.config)
+    run_id = args.run_id or latest_run_id(cfg.outputs_root, cfg.config_filename)
+    if not run_id:
+        log.error("no run_id and no prior runs"); sys.exit(2)
+    rd = run_dir_for(cfg.outputs_root, run_id)
+    _generate_viz(cfg, rd, args.stage)
 
 
 def cmd_dashboard(args) -> None:
@@ -132,6 +184,13 @@ def main(argv=None) -> int:
         sp.add_argument("--config", required=True, type=Path)
         sp.add_argument("--run-id", default=None)
         sp.add_argument("--force", action="store_true")
+        if s == "all":
+            sp.add_argument("--viz", action="store_true",
+                            help="render detect/sct/mct videos after the run")
+            sp.add_argument("--archive-after", action="store_true",
+                            help="archive the finished run to OneDrive (scripts/archive_run.sh)")
+            sp.add_argument("--keep-local", action="store_true",
+                            help="with --archive-after: upload to OneDrive but keep the local copy")
         sp.set_defaults(func=(cmd_all if s == "all"
                               else (lambda a, stage=s: cmd_stage(stage, a))))
 

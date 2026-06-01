@@ -66,6 +66,13 @@ class WorldSmoothingCfg:
 
 
 @dataclass(frozen=True)
+class WorldStitchCfg:
+    method: str = "none"              # none | endpoint_gap
+    max_gap_frames: int = 45
+    max_dist_m: float = 0.6
+
+
+@dataclass(frozen=True)
 class Config:
     scene: str
     data_root: Path
@@ -81,6 +88,7 @@ class Config:
     eval: EvalCfg
     world_projection: WorldProjectionCfg
     world_smoothing: WorldSmoothingCfg
+    world_stitch: WorldStitchCfg
     tracking_params: Mapping[str, object]
     vram_min_free_gb: float
     fps: int
@@ -159,6 +167,17 @@ def load_config(path: Path) -> Config:
     if not (0.0 <= ws_alpha <= 1.0):
         raise ConfigError(f"world_smoothing.ema_alpha must be in [0, 1], got {ws_alpha}")
     world_smoothing = WorldSmoothingCfg(method=ws_method, ema_alpha=ws_alpha)
+    st_body = body.get("world_stitch") or {}
+    st_method = st_body.get("method", "none")
+    if st_method not in {"none", "endpoint_gap"}:
+        raise ConfigError(f"world_stitch.method must be one of none|endpoint_gap, got {st_method!r}")
+    st_gap = int(st_body.get("max_gap_frames", 45))
+    if st_gap <= 0:
+        raise ConfigError(f"world_stitch.max_gap_frames must be > 0, got {st_gap}")
+    st_dist = float(st_body.get("max_dist_m", 0.6))
+    if st_dist <= 0:
+        raise ConfigError(f"world_stitch.max_dist_m must be > 0, got {st_dist}")
+    world_stitch = WorldStitchCfg(method=st_method, max_gap_frames=st_gap, max_dist_m=st_dist)
     tracking_params = MappingProxyType(dict(body.get("tracking_params") or {}))
 
     detect_cfg = DetectCfg(**body["detect"])
@@ -197,6 +216,7 @@ def load_config(path: Path) -> Config:
         eval=eval_cfg,
         world_projection=world_projection,
         world_smoothing=world_smoothing,
+        world_stitch=world_stitch,
         tracking_params=tracking_params,
         vram_min_free_gb=float(body["vram_min_free_gb"]),
         fps=int(body["fps"]),

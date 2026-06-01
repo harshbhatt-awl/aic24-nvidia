@@ -20,6 +20,7 @@
 #   mct.*                           -> mct        (only when sct path unchanged)
 #   world_projection.*              -> mct
 #   world_smoothing.*               -> evaluate
+#   world_stitch.*                  -> evaluate
 #   eval.world_d_max                -> evaluate
 #   reid.similarity_thresh          -> sct        (consumes embeddings)
 #   pose.keypoint_conf              -> sct
@@ -318,3 +319,49 @@ experiments:
         overrides:
           tracking_params:
             delete_gid_th: 5000
+
+  - id: reid_finetune
+    description: "Test the SOLIDER warehouse fine-tune (trained on scene_041/042/043, scene_044 held out) vs base SOLIDER. Targets AssA — the v3.3 world-HOTA ceiling."
+    hypothesis: "Back-cam-adapted embeddings tighten cross-camera MCPT clustering -> higher AssA/world HOTA and more back-cam global IDs. Control = v3.3 baseline (base weights)."
+    base_config: configs/baseline.yaml
+    rerun_from: reid          # new reid weights -> re-extract embeddings; reuse detect; sct/mct/evaluate downstream
+    variants:
+      - name: "ft"
+        overrides:
+          reid:
+            weights: solider_swin_small_warehouse_ft.pth
+
+  - id: world_stitch_sweep
+    description: "Sweep the post-MCT over-split stitch gate (sequential non-overlapping fragments). Targets the 32-pred-vs-25-GT over-segmentation; recovers the measured +0.0088 (clean-subset ceiling ~+0.019) world HOTA."
+    hypothesis: "Merging sequential fragments close in world+time raises world AssA/IDF1 (DetA flat); net world HOTA rises if the merges are correct (no over-merge)."
+    base_config: configs/baseline.yaml
+    rerun_from: evaluate     # world_stitch.* -> evaluate (eval-only transform)
+    variants:
+      - name: "none"          # control: stitch off (= baseline)
+        overrides:
+          world_stitch:
+            method: none
+      - name: "g30_d0.5"
+        overrides:
+          world_stitch:
+            method: endpoint_gap
+            max_gap_frames: 30
+            max_dist_m: 0.5
+      - name: "g45_d0.6"
+        overrides:
+          world_stitch:
+            method: endpoint_gap
+            max_gap_frames: 45
+            max_dist_m: 0.6
+      - name: "g60_d0.75"
+        overrides:
+          world_stitch:
+            method: endpoint_gap
+            max_gap_frames: 60
+            max_dist_m: 0.75
+      - name: "g90_d1.0"
+        overrides:
+          world_stitch:
+            method: endpoint_gap
+            max_gap_frames: 90
+            max_dist_m: 1.0
