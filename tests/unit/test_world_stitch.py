@@ -55,3 +55,28 @@ def test_find_edges_rejects_too_far_in_space():
 def test_find_edges_rejects_too_far_in_time():
     rows = [(1, 3, 0.0, 0.0), (3, 3, 0.0, 0.0), (100, 8, 0.1, 0.0), (110, 8, 0.1, 0.0)]
     assert find_stitch_edges(_summ(rows), max_gap_frames=45, max_dist_m=0.6) == []
+
+
+from aic24_nvidia.world_stitch import resolve_merges
+
+
+def test_resolve_chain_unions_to_min_gid():
+    # edges as (dist, gap, a, b): 3->8 and 8->12 chain into one component, canonical 3
+    edges = [(0.1, 2, 3, 8), (0.2, 2, 8, 12)]
+    labels = resolve_merges(edges)
+    assert labels[3] == 3
+    assert labels[8] == 3
+    assert labels[12] == 3
+
+
+def test_resolve_fanin_keeps_closer_edge_only():
+    # two predecessors (3, 5) both want successor-start 8; the closer (3) wins,
+    # the other start-slot is consumed so 5->8 is skipped.
+    edges = [(0.1, 2, 3, 8), (0.4, 2, 5, 8)]
+    labels = resolve_merges(edges)
+    assert labels[3] == 3 and labels[8] == 3
+    assert 5 not in labels  # 5 never merged
+
+
+def test_resolve_empty():
+    assert resolve_merges([]) == {}

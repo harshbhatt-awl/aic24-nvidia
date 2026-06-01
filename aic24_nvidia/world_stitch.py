@@ -45,6 +45,43 @@ def find_stitch_edges(
     return edges
 
 
+def resolve_merges(edges: list[tuple[float, int, int, int]]) -> dict[int, int]:
+    """Greedy 1-in/1-out matching + union-find -> {gid: canonical_gid}.
+
+    Edges must be pre-sorted (best first). Each gid is consumed at most once as a
+    predecessor end and once as a successor start, so a track continues into at
+    most one other and is continued by at most one — preventing fan-in/fan-out
+    while still forming chains A->B->C. Canonical id is the minimum gid in a
+    component. Returns only gids touched by an accepted merge.
+    """
+    parent: dict[int, int] = {}
+
+    def find(x: int) -> int:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra == rb:
+            return
+        hi, lo = (ra, rb) if ra > rb else (rb, ra)
+        parent[hi] = lo  # attach larger root under smaller -> canonical = min
+
+    used_end: set[int] = set()
+    used_start: set[int] = set()
+    for _dist, _gap, a, b in edges:
+        if a in used_end or b in used_start:
+            continue
+        used_end.add(a)
+        used_start.add(b)
+        union(a, b)
+
+    return {g: find(g) for g in parent}
+
+
 def summarize_tracks(rows: list[Row]) -> dict[int, TrackSummary]:
     """Per-gid endpoints/counts from (frame, gid, x, y) rows."""
     by_gid: dict[int, list[tuple[int, float, float]]] = {}
