@@ -146,5 +146,10 @@ world_smoothing:
   method: ema                # none | ema
   ema_alpha: 0.3
 
+world_stitch:
+  method: none               # none | endpoint_gap  (off; tuned via world_stitch_sweep)
+  max_gap_frames: 45
+  max_dist_m: 0.6
+
 vram_min_free_gb: 4.0
 fps: 30
