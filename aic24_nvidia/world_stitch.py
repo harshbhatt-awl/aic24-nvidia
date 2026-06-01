@@ -17,6 +17,34 @@ class TrackSummary:
     n: int
 
 
+def find_stitch_edges(
+    summaries: dict[int, TrackSummary], *, max_gap_frames: int, max_dist_m: float
+) -> list[tuple[float, int, int, int]]:
+    """Candidate (dist, gap, gid_a, gid_b) sequential edges passing the tight gate.
+
+    An edge A->B requires strict non-overlap (A.last_frame < B.first_frame), a
+    frame gap <= max_gap_frames, and a world endpoint distance <= max_dist_m.
+    Sorted by (dist, gap, gid_a, gid_b) ascending.
+    """
+    edges: list[tuple[float, int, int, int]] = []
+    items = list(summaries.values())
+    for a in items:
+        for b in items:
+            if a.gid == b.gid:
+                continue
+            if not (a.last_frame < b.first_frame):  # strict non-overlap, A before B
+                continue
+            gap = b.first_frame - a.last_frame
+            if gap > max_gap_frames:
+                continue
+            dist = math.dist(a.last_xy, b.first_xy)
+            if dist > max_dist_m:
+                continue
+            edges.append((dist, gap, a.gid, b.gid))
+    edges.sort()
+    return edges
+
+
 def summarize_tracks(rows: list[Row]) -> dict[int, TrackSummary]:
     """Per-gid endpoints/counts from (frame, gid, x, y) rows."""
     by_gid: dict[int, list[tuple[int, float, float]]] = {}
