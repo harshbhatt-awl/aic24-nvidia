@@ -14,6 +14,7 @@ from ..errors import StageError, ValidationError
 from ..manifest import read_manifest
 from ..paths import stage_dir
 from ..world_tracks import aggregate_world_tracks, smooth_world_tracks, write_world_pred
+from ..world_stitch import stitch_world_tracks
 from ..world_metrics import run_world_eval, load_world_txt
 from .base import atomic_stage
 
@@ -237,6 +238,13 @@ def _eval_mct_world(cfg, ctx, mct_global, adapted_root):
         rows, dropped = aggregate_world_tracks(Path(mct_global))
         if not rows:
             return {"skipped": "MCT produced no valid world points"}
+        rows, merges = stitch_world_tracks(
+            rows,
+            method=cfg.world_stitch.method,
+            max_gap_frames=cfg.world_stitch.max_gap_frames,
+            max_dist_m=cfg.world_stitch.max_dist_m,
+        )
+        log.info("world_stitch: merged %d fragment pairs: %s", len(merges), merges)
         rows = smooth_world_tracks(
             rows,
             method=cfg.world_smoothing.method,
@@ -258,6 +266,7 @@ def _eval_mct_world(cfg, ctx, mct_global, adapted_root):
         m = run_world_eval(gt_world, pred_txt, cfg.eval.world_d_max, trackeval_root, seq_name=SCENE)
         m["dropped_detections"] = dropped
         m["frames_evaluated"] = len(gt_frames & pred_frames)
+        m["world_stitch_merges"] = len(merges)
         return m
     except Exception as exc:
         log.exception("world MCT eval failed; reporting skipped")
@@ -336,6 +345,11 @@ def run(cfg: Config, run_dir: Path, run_id: str) -> None:
             "world_smoothing": {
                 "method": cfg.world_smoothing.method,
                 "ema_alpha": cfg.world_smoothing.ema_alpha,
+            },
+            "world_stitch": {
+                "method": cfg.world_stitch.method,
+                "max_gap_frames": cfg.world_stitch.max_gap_frames,
+                "max_dist_m": cfg.world_stitch.max_dist_m,
             },
         })
         ctx.set_upstream([str(sct_manifest_path), str(mct_manifest_path)])
