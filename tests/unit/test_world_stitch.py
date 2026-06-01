@@ -80,3 +80,20 @@ def test_resolve_fanin_keeps_closer_edge_only():
 
 def test_resolve_empty():
     assert resolve_merges([]) == {}
+
+
+def test_resolve_fanout_keeps_first_edge_only():
+    # one predecessor-end (3) with two successor-starts (8, 9); the closer (8)
+    # wins and consumes 3's end-slot, so 3->9 is skipped.
+    edges = [(0.1, 2, 3, 8), (0.4, 2, 3, 9)]
+    labels = resolve_merges(edges)
+    assert labels[3] == 3 and labels[8] == 3
+    assert 9 not in labels  # 9 never merged
+
+
+def test_resolve_canonical_is_min_regardless_of_union_order():
+    # larger gid unioned before the smaller one is introduced: 8->12 then 3->8.
+    # canonical must still drag down to the component minimum (3).
+    edges = [(0.1, 2, 8, 12), (0.2, 2, 3, 8)]
+    labels = resolve_merges(edges)
+    assert labels[3] == 3 and labels[8] == 3 and labels[12] == 3
