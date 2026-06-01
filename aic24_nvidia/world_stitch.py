@@ -82,6 +82,43 @@ def resolve_merges(edges: list[tuple[float, int, int, int]]) -> dict[int, int]:
     return {g: find(g) for g in parent}
 
 
+def stitch_world_tracks(
+    rows: list[Row], *, method: str, max_gap_frames: int, max_dist_m: float
+) -> tuple[list[Row], list[tuple[int, int]]]:
+    """Merge over-split world tracks. method='none' is identity.
+
+    For 'endpoint_gap': summarize -> find tight-gate sequential edges -> resolve
+    to a {gid: canonical} relabel -> remap rows and re-average any duplicate
+    (frame, canonical_gid) points (defensive; a no-op under strict non-overlap).
+    Returns (rows sorted by (frame, gid), merges) where merges = [(canonical,
+    absorbed), ...].
+    """
+    if method == "none":
+        return list(rows), []
+    if method != "endpoint_gap":
+        raise ValueError(f"stitch_world_tracks: unknown method {method!r}")
+
+    summaries = summarize_tracks(rows)
+    edges = find_stitch_edges(summaries, max_gap_frames=max_gap_frames, max_dist_m=max_dist_m)
+    labels = resolve_merges(edges)
+    if not labels:
+        return list(rows), []
+
+    acc: dict[tuple[int, int], list[tuple[float, float]]] = defaultdict(list)
+    for f, g, x, y in rows:
+        cg = labels.get(g, g)
+        acc[(f, cg)].append((x, y))
+    out: list[Row] = []
+    for (f, g), pts in acc.items():
+        mx = sum(p[0] for p in pts) / len(pts)
+        my = sum(p[1] for p in pts) / len(pts)
+        out.append((f, g, mx, my))
+    out.sort()
+
+    merges = sorted((labels[g], g) for g in labels if labels[g] != g)
+    return out, merges
+
+
 def summarize_tracks(rows: list[Row]) -> dict[int, TrackSummary]:
     """Per-gid endpoints/counts from (frame, gid, x, y) rows."""
     by_gid: dict[int, list[tuple[int, float, float]]] = {}

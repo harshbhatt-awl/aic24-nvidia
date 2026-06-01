@@ -97,3 +97,50 @@ def test_resolve_canonical_is_min_regardless_of_union_order():
     edges = [(0.1, 2, 8, 12), (0.2, 2, 3, 8)]
     labels = resolve_merges(edges)
     assert labels[3] == 3 and labels[8] == 3 and labels[12] == 3
+
+
+# ---------------------------------------------------------------------------
+# Task 4: stitch_world_tracks top-level
+# ---------------------------------------------------------------------------
+from aic24_nvidia.world_stitch import stitch_world_tracks
+
+
+def test_stitch_none_is_identity():
+    rows = [(1, 3, 0.0, 0.0), (2, 3, 1.0, 1.0)]
+    out, merges = stitch_world_tracks(rows, method="none", max_gap_frames=45, max_dist_m=0.6)
+    assert out == rows
+    assert merges == []
+
+
+def test_stitch_endpoint_gap_merges_sequential_pair():
+    # gid 3 frames 1..3, gid 8 frames 5..7, close -> merge into gid 3 spanning all
+    rows = [
+        (1, 3, 0.0, 0.0), (2, 3, 0.0, 0.0), (3, 3, 0.0, 0.0),
+        (5, 8, 0.3, 0.0), (6, 8, 0.4, 0.0), (7, 8, 0.5, 0.0),
+    ]
+    out, merges = stitch_world_tracks(rows, method="endpoint_gap", max_gap_frames=45, max_dist_m=0.6)
+    assert merges == [(3, 8)]
+    assert {g for (_f, g, _x, _y) in out} == {3}
+    assert sorted(f for (f, _g, _x, _y) in out) == [1, 2, 3, 5, 6, 7]
+
+
+def test_stitch_no_candidates_returns_input_and_empty_merges():
+    rows = [(1, 3, 0.0, 0.0), (5, 8, 9.0, 9.0)]  # far apart in space
+    out, merges = stitch_world_tracks(rows, method="endpoint_gap", max_gap_frames=45, max_dist_m=0.6)
+    assert merges == []
+    assert {g for (_f, g, _x, _y) in out} == {3, 8}
+
+
+def test_stitch_is_deterministic():
+    rows = [
+        (1, 3, 0.0, 0.0), (3, 3, 0.0, 0.0),
+        (5, 8, 0.3, 0.0), (7, 8, 0.5, 0.0),
+    ]
+    a = stitch_world_tracks(rows, method="endpoint_gap", max_gap_frames=45, max_dist_m=0.6)
+    b = stitch_world_tracks(rows, method="endpoint_gap", max_gap_frames=45, max_dist_m=0.6)
+    assert a == b
+
+
+def test_stitch_invalid_method():
+    with pytest.raises(ValueError, match="method"):
+        stitch_world_tracks([(1, 1, 0.0, 0.0)], method="kalman", max_gap_frames=45, max_dist_m=0.6)
