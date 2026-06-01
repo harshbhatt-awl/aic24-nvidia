@@ -65,6 +65,31 @@ python pipeline.py dashboard --port 8501           # Streamlit (read-only viewer
 python pipeline.py menu                            # interactive operations hub (needs `pip install -e ".[hub]"`)
 ```
 
+### Renting a GPU box (remote training)
+
+The 6 GB local card handles a 30s clip (~45 min); for faster iteration or reid
+fine-tuning, rent a bigger GPU (RTX 4090 / A100). `scripts/remote_setup.sh` takes
+a freshly-rented box from `git clone` to pipeline-ready in one command:
+GPU/driver preflight (warns if the driver is < 580 — too old for torch cu130),
+system deps (ffmpeg, rclone, tmux, …), a Python 3.14 `.venv` via `uv` with
+**torch installed from the cu130 index first** (the lock pins `torch` bare, so a
+plain `pip install -r` would grab the wrong wheel), `bootstrap_external.sh`, and
+a best-effort `rclone` pull of the dataset + SOLIDER weight (the laptop's
+`data/` + `weights/` symlinks don't exist on a fresh box).
+
+```bash
+# on the rented box (clone first — the script lives in the repo):
+git clone https://github.com/harshbhatt-awl/aic24-nvidia && cd aic24-nvidia
+scripts/remote_setup.sh         # --no-apt / --skip-data / --skip-weights / --remote NAME
+```
+
+For a hands-free data/weight pull, stage them on your rclone remote once
+(`rclone copy data/nvidia_mtmc_2024 onedrive:aic24/data/nvidia_mtmc_2024`,
+`rclone copy weights/solider_swin_small.pth onedrive:aic24/weights/`). Connect
+from your laptop via VS Code Remote-SSH; `ssh -L 8501:localhost:8501` forwards
+the Streamlit dashboard. Run long jobs under `tmux` so an SSH drop doesn't kill
+them.
+
 ### Experiment harness (`experiments/`)
 
 A/B variants against a locked baseline without re-running slow stages:
