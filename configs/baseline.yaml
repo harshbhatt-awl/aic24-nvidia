@@ -1,5 +1,5 @@
 # ============================================================================
-#   v3.3 LOCKED BASELINE (v3.2 + eps_scpt re-tuned 0.20->0.15 on the kp3 set)
+#   v3.4 LOCKED BASELINE (v3.3 + post-MCT over-split stitch, endpoint_gap g30/d0.5)
 # ============================================================================
 #
 # The reference all experiments are compared against:
@@ -10,8 +10,20 @@
 #   * Tracker:  YACHIYO SCPT/MCPT with sweep-tuned thresholds (see below).
 #   * World projection: RTMPose ankle-lower keypoint (planted foot) instead of
 #                       bbox-bottom-center; EMA temporal smoothing at α=0.3.
-#   * Measured: world HOTA 0.6479, DetA 0.6549, AssA 0.6423, IDF1 0.8040, dropped 6347;
-#               image HOTA 0.7677, IDF1 0.7521, MOTA 0.7810.
+#   * World post-process: over-split stitch (endpoint_gap, gap≤30f, dist≤0.5m) —
+#                       merges sequential non-overlapping fragmented global IDs
+#                       (eval-stage, between aggregate and EMA smooth).
+#   * Measured: world HOTA 0.6567, DetA 0.6549, AssA 0.6597, IDF1 0.8203;
+#               image HOTA 0.7677, IDF1 0.7521, MOTA 0.7810 (image unchanged).
+#   * vs v3.3 (no stitch): world HOTA +0.0088 (AssA +0.0174, IDF1 +0.0163, DetA
+#               flat, image unchanged). The pipeline over-segments — 32 predicted
+#               world global IDs vs 25 GT; the stitch merges the one clean
+#               sequential fragment pair (gid 8->3, endpoints 0.34m / 8 frames).
+#               Verified by the world_stitch_sweep (all gates g30/d0.5..g90/d1.0
+#               find the same single merge — strict non-overlap excludes the
+#               concurrent cross-cam splits, the deferred lever #2 mcpt.py:575
+#               world must-link). Design+plan:
+#               docs/superpowers/{specs,plans}/2026-06-01-over-split-stitch*.
 #   * vs v3.2 (eps_scpt=0.20): world HOTA +0.0121 (DetA +0.0057, AssA +0.0183,
 #               IDF1 +0.0238) — a deliberate WORLD↔IMAGE TRADE: image HOTA -0.0123
 #               (0.7800->0.7677). eps_scpt 0.15 is the world-HOTA peak on the kp3
@@ -147,9 +159,9 @@ world_smoothing:
   ema_alpha: 0.3
 
 world_stitch:
-  method: none               # none | endpoint_gap  (off; tuned via world_stitch_sweep)
-  max_gap_frames: 45
-  max_dist_m: 0.6
+  method: endpoint_gap       # v3.4: merge sequential over-split fragments (+0.0088 world HOTA)
+  max_gap_frames: 30         # tightest gate; gates 30..90 all find the same single merge on scene_044
+  max_dist_m: 0.5
 
 vram_min_free_gb: 4.0
 fps: 30
